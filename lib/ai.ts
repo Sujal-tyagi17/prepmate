@@ -1,7 +1,12 @@
+// Model IDs are configurable so a provider retiring a model doesn't break the app.
+// (gemini-2.0-flash was shut down Jun 1 2026; Groq's llama-3.3-70b-versatile on Aug 16 2026.)
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+
 async function callGemini(prompt: string, systemPrompt?: string): Promise<string> {
     const { GoogleGenerativeAI } = await import("@google/generative-ai");
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
     const fullPrompt = systemPrompt
         ? `${systemPrompt}\n\n${prompt}`
@@ -21,11 +26,14 @@ async function callGroq(prompt: string, systemPrompt?: string): Promise<string> 
     messages.push({ role: "user", content: prompt });
 
     const completion = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
+        model: GROQ_MODEL,
         messages,
         temperature: 0.7,
-        max_tokens: 1500,
-    });
+        // gpt-oss is a reasoning model: reasoning tokens count toward this limit,
+        // so keep effort low and leave headroom for the actual answer.
+        max_completion_tokens: 4096,
+        ...(GROQ_MODEL.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" as const } : {}),
+    } as any);
 
     return completion.choices[0]?.message?.content?.trim() ?? "";
 }

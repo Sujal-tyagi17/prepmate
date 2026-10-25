@@ -68,7 +68,7 @@ export async function POST(
         console.error("Error generating question:", error);
         const isQuota = error?.message?.includes("quota") || error?.message?.includes("429");
         return NextResponse.json(
-            { error: isQuota ? "AI quota exceeded. Please configure GROQ_API_KEY." : "Failed to generate question" },
+            { error: isQuota ? "AI quota exceeded. Please configure GROQ_API_KEY." : (error?.message || "Failed to generate question") },
             { status: isQuota ? 503 : 500 }
         );
     }
