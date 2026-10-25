@@ -7,6 +7,7 @@ import {
     Download, RefreshCcw, TrendingUp, MessageSquare, Clock, Star,
     BarChart2, Zap, Award, X, Sparkles
 } from "lucide-react";
+import { answeredScores, interviewScore } from "@/lib/scoring";
 
 interface QuestionBreakdown {
     question_text: string;
@@ -114,10 +115,8 @@ export default function FeedbackPage({ params }: { params: { id: string } }) {
     const answeredCount = answers.length;
     const unansweredCount = totalQuestions - answeredCount;
     
-    const scores = answers.map((a: any) => a.score ?? 0).filter((s: number) => s > 0);
-    const finalScore = scores.length > 0
-        ? Math.round((scores.reduce((a: number, b: number) => a + b, 0) / scores.length) * 10)
-        : 0;
+    const scores = answeredScores(allAnswers);
+    const finalScore = interviewScore(allAnswers); // same rule as analytics/history
 
     const circumference = 2 * Math.PI * 54;
     const offset = circumference - (finalScore / 100) * circumference;
@@ -344,8 +343,8 @@ export default function FeedbackPage({ params }: { params: { id: string } }) {
                                 <p className="text-sm text-gray-300 leading-relaxed">
                                     You answered <strong>{answeredCount}</strong> out of <strong>{totalQuestions}</strong> questions. 
                                     {unansweredCount === totalQuestions 
-                                        ? " No questions were answered - please complete the interview to receive accurate feedback." 
-                                        : ` ${unansweredCount} question${unansweredCount > 1 ? 's' : ''} ${unansweredCount > 1 ? 'were' : 'was'} skipped. Complete all questions for a comprehensive evaluation.`
+                                        ? " No questions were answered, so there's nothing to score yet — try another session and answer at least a few questions." 
+                                        : ` ${unansweredCount} question${unansweredCount > 1 ? 's were' : ' was'} skipped — skipped questions aren't scored, so try answering every question for a fuller evaluation.`
                                     }
                                 </p>
                             </div>

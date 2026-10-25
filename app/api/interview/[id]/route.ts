@@ -92,12 +92,19 @@ export async function PATCH(
         if (overallScore !== undefined) updates.overall_score = overallScore;
         if (overallFeedback) updates.overall_feedback = overallFeedback;
 
-        // If completing interview, generate AI summary & update duration
-        if (status === "completed" && interview.answers && interview.answers.length > 0) {
+        // When completing, always record the real end time and actual duration
+        // (while in progress, `duration` holds the planned session length).
+        if (status === "completed" && interview.status !== "completed") {
             updates.completed_at = new Date().toISOString();
             updates.duration = Math.floor(
                 (new Date(updates.completed_at).getTime() - new Date(interview.started_at).getTime()) / 1000
             );
+        }
+
+        // If completing with answers, generate the AI summary
+        if (status === "completed" && interview.status !== "completed" && interview.answers && interview.answers.length > 0) {
+            // Summarize in the order the questions were asked
+            interview.answers.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
             // Generate comprehensive summary with Gemini
             try {

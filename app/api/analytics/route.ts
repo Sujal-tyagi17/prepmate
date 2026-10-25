@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
+import { answeredScores, interviewScore } from "@/lib/scoring";
 
 export const dynamic = 'force-dynamic';
 
@@ -50,20 +51,15 @@ export async function GET(req: NextRequest) {
 
         const totalInterviews = interviews?.length || 0;
 
-        // Calculate average score from all answers
-        const allScores = interviews?.flatMap((iv: any) =>
-            (iv.answers || []).map((a: any) => a.score).filter((s: any) => s !== null && s !== undefined)
-        ) || [];
-        
+        // Average across every answered question (skips excluded), 0–100
+        const allScores = (interviews || []).flatMap((iv: any) => answeredScores(iv.answers || []));
         const averageScore =
             allScores.length > 0
                 ? Math.round((allScores.reduce((s: number, n: number) => s + n, 0) / allScores.length) * 10)
                 : 0;
 
-        // Calculate best score
-        const bestScore = allScores.length > 0
-            ? Math.round(Math.max(...allScores) * 10)
-            : 0;
+        // Best single-interview score, 0–100 (same rule as the feedback page)
+        const bestScore = (interviews || []).reduce((m: number, iv: any) => Math.max(m, interviewScore(iv.answers || [])), 0);
 
         // Calculate streak (consecutive days with interviews)
         // Use UTC ISO date (YYYY-MM-DD) to avoid server timezone shifting dates
@@ -116,11 +112,9 @@ export async function GET(req: NextRequest) {
             .slice(0, 12)
             .reverse()
             .map((iv: any) => {
-                const scores = (iv.answers || []).map((a: any) => a.score ?? 0);
-                const avg = scores.length > 0 ? scores.reduce((s: number, n: number) => s + n, 0) / scores.length : 0;
                 return {
                     date: iv.completed_at,
-                    score: Math.round(avg * 10) / 10,
+                    score: interviewScore(iv.answers || []) / 10, // 0–10, one decimal
                     type: iv.type,
                 };
             });
@@ -205,9 +199,7 @@ export async function GET(req: NextRequest) {
                     date: iv.completed_at || iv.started_at || iv.created_at,
                     status: iv.status,
                     questionsCount: (iv.answers || []).length,
-                    score: iv.overall_score ? Math.round(iv.overall_score) : 
-                           ((iv.answers || []).length > 0 ? 
-                            Math.round((iv.answers.reduce((sum: number, a: any) => sum + (a.score || 0) * 10, 0) / iv.answers.length)) : 0),
+                    score: interviewScore(iv.answers || []), // 0–100, same as feedback page
                 })),
                 allInterviews: allInterviewsData.map((iv: any) => ({
                     id: iv.id,
@@ -218,9 +210,7 @@ export async function GET(req: NextRequest) {
                     date: iv.completed_at || iv.started_at || iv.created_at,
                     status: iv.status,
                     questionsCount: (iv.answers || []).length,
-                    score: iv.overall_score ? Math.round(iv.overall_score) : 
-                           ((iv.answers || []).length > 0 ? 
-                            Math.round((iv.answers.reduce((sum: number, a: any) => sum + (a.score || 0) * 10, 0) / iv.answers.length)) : 0),
+                    score: interviewScore(iv.answers || []), // 0–100, same as feedback page
                 })),
             },
         });

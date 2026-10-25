@@ -4,6 +4,7 @@ import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useTransition, useMemo } from "react";
 import { Loader2, Sparkles, TrendingUp, Clock, Target, ArrowRight, Brain, BarChart2, Flame, Trophy, Zap, BookOpen } from "lucide-react";
+import { formatPracticeTime } from "@/lib/scoring";
 
 export default function DashboardPage() {
     const { user, isLoaded } = useUser();
@@ -17,7 +18,7 @@ export default function DashboardPage() {
         setNavigatingTo(href);
         startTransition(() => router.push(href));
     };
-    const [stats, setStats] = useState({ total: 0, avgScore: 0, streak: 0, hoursPracticed: 0, improvement: 0 });
+    const [stats, setStats] = useState({ total: 0, avgScore: 0, streak: 0, hoursPracticed: "0m", improvement: 0 });
     const [completedTimestamps, setCompletedTimestamps] = useState<string[]>([]);
     const [hoveredCell, setHoveredCell] = useState<{ date: string; count: number } | null>(null);
     const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
@@ -55,7 +56,7 @@ export default function DashboardPage() {
                     total: data.analytics.totalInterviews || 0,
                     avgScore: Math.round(data.analytics.averageScore || 0),
                     streak: data.analytics.streak || 0,
-                    hoursPracticed: Math.round((data.analytics.totalMinutes || 0) / 60),
+                    hoursPracticed: formatPracticeTime(data.analytics.totalMinutes || 0),
                     improvement: scores.length > 1 ? Math.round(lastScore - firstScore) : 0,
                 });
                 // Use completedTimestamps — heatmap computed client-side
@@ -197,7 +198,7 @@ export default function DashboardPage() {
                         <span className="text-xs text-gray-600">Practice</span>
                     </div>
                     <div className="text-2xl sm:text-3xl font-bold text-white mb-0.5">{loading ? <div className="h-8 w-10 bg-white/10 rounded animate-pulse" /> : stats.hoursPracticed}</div>
-                    <div className="text-xs text-gray-500">Hours Practiced</div>
+                    <div className="text-xs text-gray-500">Time Practiced</div>
                 </div>
 
                 {/* Improvement Rate */}
