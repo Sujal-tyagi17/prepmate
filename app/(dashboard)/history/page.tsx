@@ -132,7 +132,7 @@ export default function HistoryPage() {
     }
 
     return (
-        <div className="px-10 py-8 max-w-7xl">
+        <div className="px-4 sm:px-6 lg:px-10 py-6 lg:py-8 max-w-7xl">
             <div className="mb-8">
                 <p className="text-xs font-semibold text-purple-400 tracking-widest uppercase mb-1">Your Sessions</p>
                 <h1 className="text-3xl font-bold text-white">Interview <span className="grad-text">History</span></h1>
@@ -164,26 +164,26 @@ export default function HistoryPage() {
                 </div>
 
                 {/* Row 2: type filter chips + score filter + sort */}
-                <div className="flex flex-wrap gap-2 items-center">
+                <div className="flex flex-nowrap sm:flex-wrap gap-2 items-center overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0 pb-1 sm:pb-0">
                     {types.map((t) => (
                         <button key={t} onClick={() => { setFilter(t); setPage(1); }}
-                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${filter === t
+                            className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-all ${filter === t
                                 ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
                                 : "bg-white/5 text-gray-400 border border-white/10 hover:border-white/20 hover:text-white"}`}>
                             {t}
                         </button>
                     ))}
-                    <div className="h-4 w-px bg-white/10" />
+                    <div className="h-4 w-px flex-shrink-0 bg-white/10" />
                     {/* Score filter */}
                     {["All", "80+", "50-80", "0-50"].map(s => (
                         <button key={s} onClick={() => { setScoreFilter(s); setPage(1); }}
-                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${scoreFilter === s
+                            className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-all ${scoreFilter === s
                                 ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                                 : "bg-white/5 text-gray-400 border border-white/10 hover:border-white/20 hover:text-white"}`}>
                             {s === "All" ? "All Scores" : `Score ${s}`}
                         </button>
                     ))}
-                    <div className="ml-auto">
+                    <div className="ml-auto flex-shrink-0">
                         <select value={sort} onChange={(e) => setSort(e.target.value)}
                             className="bg-white/5 border border-white/10 text-gray-400 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-purple-500/50 cursor-pointer">
                             {sortOptions.map(o => <option key={o.value} value={o.value} className="bg-[#1a1025]">{o.label}</option>)}
@@ -195,7 +195,7 @@ export default function HistoryPage() {
 
             {/* Interview list / grid */}
             {loading ? (
-                <div className={view === "grid" ? "grid grid-cols-2 gap-3" : "space-y-3"}>
+                <div className={view === "grid" ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : "space-y-3"}>
                     {[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-2xl bg-white/3 animate-pulse" />)}
                 </div>
             ) : paginated.length === 0 ? (
@@ -215,7 +215,7 @@ export default function HistoryPage() {
                         const circumference = 2 * Math.PI * 18;
                         const offsetVal = circumference - (score / 100) * circumference;
                         return (
-                            <div key={iv.id} className="w-full flex items-center gap-5 px-5 py-5 rounded-2xl bg-white/3 border border-white/8 hover:border-purple-500/20 hover:bg-white/5 transition-all group relative">
+                            <div key={iv.id} onClick={() => router.push(`/interview/${iv.id}/feedback`)} className="w-full flex items-center gap-3 sm:gap-5 px-4 sm:px-5 py-4 sm:py-5 cursor-pointer rounded-2xl bg-white/3 border border-white/8 hover:border-purple-500/20 hover:bg-white/5 transition-all group relative">
                                 <div className="flex-shrink-0 relative w-12 h-12">
                                     <svg width="48" height="48" viewBox="0 0 48 48">
                                         <circle cx="24" cy="24" r="18" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="5" />
@@ -231,18 +231,21 @@ export default function HistoryPage() {
                                     </div>
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className={`text-xs px-2 py-0.5 rounded-full border font-medium capitalize ${typeColor(iv.type)}`}>{iv.type || "Interview"}</span>
-                                        <span className="text-xs text-gray-500 capitalize">{iv.difficulty || "Standard"} difficulty</span>
+                                    <div className="flex items-center gap-2 mb-1 min-w-0">
+                                        <span className={`text-xs px-2 py-0.5 rounded-full border font-medium capitalize whitespace-nowrap ${typeColor(iv.type)}`}>{(iv.type || "Interview").replace("-", " ")}</span>
+                                        <span className="text-xs text-gray-500 capitalize whitespace-nowrap">{iv.difficulty || "Standard"}<span className="hidden sm:inline"> difficulty</span></span>
                                     </div>
                                     <p className="text-sm font-medium text-white truncate">{iv.company || "General Interview"}</p>
-                                    <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
-                                        <Clock className="w-3 h-3" />
-                                        {new Date(iv.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                                    <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5 whitespace-nowrap">
+                                        <Clock className="w-3 h-3 flex-shrink-0" />
+                                        {new Date(iv.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                        <span className={`sm:hidden ${iv.status === "completed" ? "text-green-400" : iv.status === "abandoned" ? "text-gray-400" : "text-yellow-400"}`}>
+                                            · {iv.status === "completed" ? "Completed" : iv.status === "abandoned" ? "Abandoned" : "In progress"}
+                                        </span>
                                     </p>
                                 </div>
-                                <div className="flex items-center gap-3 flex-shrink-0">
-                                    <div className={`text-xs px-2.5 py-1 rounded-full font-medium border ${
+                                <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                                    <div className={`hidden sm:block text-xs px-2.5 py-1 rounded-full font-medium border ${
                                         iv.status === "completed" 
                                             ? "bg-green-500/10 text-green-400 border-green-500/20" 
                                             : iv.status === "abandoned"
@@ -315,8 +318,9 @@ export default function HistoryPage() {
                                     </div>
                                     
                                     <button
-                                        onClick={() => router.push(`/interview/${iv.id}/feedback`)}
-                                        className="p-2 rounded-lg hover:bg-white/5 transition-colors"
+                                        onClick={(e) => { e.stopPropagation(); router.push(`/interview/${iv.id}/feedback`); }}
+                                        className="hidden sm:block p-2 rounded-lg hover:bg-white/5 transition-colors"
+                                        aria-label="View feedback"
                                     >
                                         <ArrowRight className="w-4 h-4 text-gray-600 group-hover:text-purple-400 transition-colors" />
                                     </button>

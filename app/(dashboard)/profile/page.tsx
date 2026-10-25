@@ -335,10 +335,10 @@ export default function ProfilePage() {
     }
 
     return (
-        <div className="px-10 py-8 max-w-7xl relative">
+        <div className="px-4 sm:px-6 lg:px-10 py-6 lg:py-8 max-w-7xl relative">
             {/* Sticky Save Button */}
             {section === "profile" && hasUnsavedChanges && (
-                <div className="fixed top-4 right-8 z-40 animate-slide-in">
+                <div className="fixed z-40 animate-slide-in bottom-[max(1rem,env(safe-area-inset-bottom))] inset-x-4 lg:inset-x-auto lg:bottom-auto lg:top-4 lg:right-8 [&>button]:w-full [&>button]:justify-center lg:[&>button]:w-auto">
                     <button 
                         onClick={() => handleSave(false)} 
                         disabled={saving}
@@ -355,20 +355,20 @@ export default function ProfilePage() {
                 </div>
             )}
 
-            <div className="mb-8">
+            <div className="mb-6 lg:mb-8">
                 <p className="text-xs font-semibold text-purple-400 tracking-widest uppercase mb-1">Account</p>
-                <h1 className="text-3xl font-bold text-white">Settings</h1>
+                <h1 className="text-2xl sm:text-3xl font-bold text-white">Settings</h1>
             </div>
 
-            <div className="flex gap-6">
-                {/* Left nav */}
-                <div className="w-52 flex-shrink-0">
-                    <nav className="space-y-1">
+            <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
+                {/* Left nav (horizontal scrolling tabs on mobile) */}
+                <div className="lg:w-52 flex-shrink-0 -mx-4 px-4 sm:mx-0 sm:px-0">
+                    <nav className="flex lg:flex-col gap-2 lg:gap-0 lg:space-y-1 overflow-x-auto no-scrollbar pb-1 lg:pb-0">
                         {SECTIONS.map(({ key, label, icon: Icon }) => (
                             <button key={key} onClick={() => setSection(key)}
-                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${section === key
+                                className={`flex-shrink-0 lg:w-full whitespace-nowrap flex items-center gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded-xl text-sm font-medium transition-all text-left border lg:border-0 ${section === key
                                     ? "bg-purple-500/15 text-purple-300 border border-purple-500/20"
-                                    : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
+                                    : "text-gray-400 hover:text-white hover:bg-white/5 border-white/10"}`}>
                                 <Icon className={`w-4 h-4 ${section === key ? "text-purple-400" : "text-gray-500"}`} />
                                 {label}
                             </button>
@@ -377,13 +377,13 @@ export default function ProfilePage() {
                 </div>
 
                 {/* Right content */}
-                <div className="flex-1">
-                    <div className="rounded-2xl border border-white/8 bg-white/3 p-6">
+                <div className="flex-1 min-w-0">
+                    <div className="rounded-2xl border border-white/8 bg-white/3 p-4 sm:p-6">
 
                         {/* Profile section */}
                         {section === "profile" && (
                             <div className="space-y-6">
-                                <div className="flex items-start justify-between">
+                                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                                     <div>
                                         <h2 className="font-semibold text-white text-lg mb-1">Profile Information</h2>
                                         <p className="text-sm text-gray-500">Update your account details</p>

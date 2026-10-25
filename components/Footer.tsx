@@ -251,10 +251,10 @@ export default function Footer() {
                 </div>
 
                 {/* ── Main columns ── */}
-                <div className="py-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10 border-b border-white/[0.05]">
+                <div className="py-10 sm:py-12 grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-10 sm:gap-10 border-b border-white/[0.05]">
 
                     {/* Col 1: Logo + description */}
-                    <div className="sm:col-span-2 lg:col-span-1">
+                    <div className="col-span-2 lg:col-span-1">
                         {/* Logo */}
                         <Link href="/" className="inline-flex items-center gap-2.5 mb-4 group">
                             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-purple-500/30 group-hover:scale-105 transition-transform duration-200">

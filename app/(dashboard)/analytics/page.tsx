@@ -110,7 +110,7 @@ export default function AnalyticsPage() {
     }
 
     return (
-        <div className="px-10 py-8 max-w-7xl">
+        <div className="px-4 sm:px-6 lg:px-10 py-6 lg:py-8 max-w-7xl">
             <div className="mb-8">
                 <p className="text-xs font-semibold text-purple-400 tracking-widest uppercase mb-1">Your Progress</p>
                 <h1 className="text-3xl font-bold text-white">Performance <span className="grad-text">Analytics</span></h1>

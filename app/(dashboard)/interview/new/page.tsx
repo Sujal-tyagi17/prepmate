@@ -216,11 +216,11 @@ export default function NewInterviewPage() {
                             {/* Difficulty subselect */}
                             <div className="mt-6">
                                 <p className="text-sm font-medium text-gray-300 mb-3">Difficulty Level</p>
-                                <div className="flex gap-3">
+                                <div className="flex gap-2 sm:gap-3">
                                     {DIFFICULTIES.map((d) => (
                                         <button type="button" key={d.value}
                                             onClick={() => setFormData({ ...formData, difficulty: d.value })}
-                                            className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 ${formData.difficulty === d.value
+                                            className={`flex-1 min-w-0 px-2 py-3 rounded-xl border text-sm font-medium transition-all duration-200 active:scale-95 flex items-center justify-center gap-1.5 sm:gap-2 ${formData.difficulty === d.value
                                                 ? "border-purple-500/40 bg-purple-500/10 text-purple-300"
                                                 : "border-white/8 bg-white/3 text-gray-400 hover:border-white/15"}`}>
                                             <span>{d.icon}</span>{d.label}

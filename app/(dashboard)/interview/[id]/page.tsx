@@ -466,7 +466,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-screen bg-[#0a0514]">
+            <div className="flex items-center justify-center h-[100dvh] bg-[#0a0514]">
                 <div className="flex flex-col items-center">
                     <div className="relative w-16 h-16 mb-5">
                         <div className="absolute inset-0 rounded-full border-2 border-purple-500/20" />
@@ -486,7 +486,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
     if (completed) {
         const finalScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) : 0;
         return (
-            <div className="flex items-center justify-center h-screen bg-[#0a0514] p-8">
+            <div className="flex items-center justify-center h-[100dvh] bg-[#0a0514] p-8">
                 <div className="text-center max-w-md">
                     {/* Big score circle */}
                     <div className="relative w-32 h-32 mx-auto mb-6">
@@ -533,7 +533,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
     }
 
     return (
-        <div className="flex h-screen overflow-hidden bg-[#0a0514]">
+        <div className="flex h-[100dvh] overflow-hidden bg-[#0a0514]">
 
             {/* End interview loading overlay */}
             {endingInterview && (
@@ -552,7 +552,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
             )}
 
             {/* ── LEFT — Insights Panel ── */}
-            <aside className="w-64 flex-shrink-0 border-r border-white/5 flex flex-col py-5 px-4 overflow-y-auto"
+            <aside className="hidden lg:flex w-64 flex-shrink-0 border-r border-white/5 flex-col py-5 px-4 overflow-y-auto"
                 style={{ background: "linear-gradient(180deg, #0f0a1a 0%, #0a0a0f 100%)" }}>
 
                 <div className="mb-6">
@@ -714,14 +714,42 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
             </aside>
 
             {/* ── CENTER — Chat Area ── */}
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
 
                 {/* Top bar */}
-                <div className="border-b border-white/5 px-6 py-3 flex items-center justify-between flex-shrink-0">
-                    <Link href="/dashboard" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-200">
-                        <ArrowLeft className="w-3.5 h-3.5" /> Dashboard
+                <div className="border-b border-white/5 px-3 sm:px-6 py-2.5 sm:py-3 pt-[max(0.625rem,env(safe-area-inset-top))] flex items-center justify-between gap-2 flex-shrink-0">
+                    <Link href="/dashboard" aria-label="Back to dashboard" className="flex-shrink-0 flex items-center gap-1.5 text-xs text-gray-400 hover:text-white p-2 sm:px-3 sm:py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-200">
+                        <ArrowLeft className="w-4 h-4 sm:w-3.5 sm:h-3.5" /> <span className="hidden sm:inline">Dashboard</span>
                     </Link>
-                    <div className="flex items-center gap-3">
+
+                    {/* Mobile: live status + type (sidebar is hidden below lg) */}
+                    <div className="lg:hidden flex-1 min-w-0 flex flex-col items-center">
+                        <span className="flex items-center gap-1.5 text-xs text-green-400 font-medium">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Live · Q{Math.max(questionNumber, 1)}/{totalQuestions}
+                        </span>
+                        <span className="text-[11px] text-gray-500 capitalize truncate max-w-full">
+                            {interview?.type?.replace("-", " ")} · {interview?.difficulty}{interview?.company ? ` · ${interview.company}` : ""}
+                        </span>
+                    </div>
+
+                    {/* Mobile: voice toggle + end */}
+                    <div className="lg:hidden flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                            onClick={() => {
+                                setVoiceEnabled(!voiceEnabled);
+                                if (voiceEnabled && synthRef.current) { synthRef.current.cancel(); setIsSpeaking(false); }
+                            }}
+                            aria-label={voiceEnabled ? "Turn AI voice off" : "Turn AI voice on"}
+                            className={`p-2 rounded-xl border transition-all ${voiceEnabled ? "border-purple-500/30 bg-purple-500/10 text-purple-400" : "border-white/10 bg-white/5 text-gray-500"}`}>
+                            {voiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                        </button>
+                        <button onClick={handleEndInterview} disabled={endingInterview}
+                            className="px-3 py-2 rounded-xl border border-red-500/25 bg-red-500/10 text-red-400 text-xs font-semibold disabled:opacity-60 flex items-center gap-1.5">
+                            {endingInterview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "End"}
+                        </button>
+                    </div>
+
+                    <div className="hidden lg:flex items-center gap-3 min-w-0">
                         {interview?.company && (
                             <span className="text-xs px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-gray-400">
                                 {interview.company}
@@ -736,7 +764,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                 </div>
 
                 {/* Messages — scrollable conversation history */}
-                <div className="flex-1 overflow-y-auto px-6 py-6">
+                <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6">
                     <div className="space-y-4 max-w-2xl mx-auto">
                         {messages.length === 0 && !generating && !currentQuestion && (
                             <div className="text-center py-16">
@@ -752,13 +780,13 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                         )}
                         {messages.map((msg, i) => (
                             <div key={i} className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
-                                <div className={`w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${msg.role === "ai"
+                                <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${msg.role === "ai"
                                     ? "bg-gradient-to-br from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/20"
                                     : "bg-white/10 text-gray-300"}`}>
                                     {msg.role === "ai" ? <Volume2 className="w-4 h-4" /> : "U"}
                                 </div>
-                                <div className={`max-w-xl flex flex-col gap-1 ${msg.role === "user" ? "items-end" : "items-start"}`}>
-                                    <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${msg.role === "ai"
+                                <div className={`min-w-0 max-w-[85%] sm:max-w-xl flex flex-col gap-1 ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                                    <div className={`rounded-2xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-sm leading-relaxed break-words ${msg.role === "ai"
                                         ? "bg-purple-500/10 border border-purple-500/20 text-gray-200"
                                         : "bg-white/7 border border-white/10 text-gray-300"}`}>
                                         {msg.content}
@@ -810,11 +838,11 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                 <div className="border-t border-white/5 flex-shrink-0 bg-[#0a0514]/80 backdrop-blur-xl">
                     {/* Current Question Card — pinned above input */}
                     {currentQuestion && (
-                        <div className="px-6 pt-4">
+                        <div className="px-3 sm:px-6 pt-3 sm:pt-4">
                             <div className="relative rounded-2xl border border-purple-500/25 bg-purple-500/5 backdrop-blur-sm overflow-hidden mb-3">
                                 <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/60 to-transparent" />
-                                <div className="p-4">
-                                    <div className="flex items-center justify-between mb-3">
+                                <div className="p-3.5 sm:p-4">
+                                    <div className="flex items-center justify-between gap-2 mb-2 sm:mb-3">
                                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-xs font-semibold">
                                             <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
                                             Question {questionNumber} of {totalQuestions}
@@ -837,7 +865,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                                             )}
                                         </div>
                                     </div>
-                                    <p className="text-white text-base font-semibold leading-relaxed mb-3">{currentQuestion}</p>
+                                    <p className="text-white text-[15px] sm:text-base font-semibold leading-relaxed mb-3 max-h-[28vh] overflow-y-auto">{currentQuestion}</p>
                                     <div className="flex items-center gap-2 pt-2 border-t border-white/8">
                                         {isSpeaking ? (
                                             <><Volume2 className="w-3.5 h-3.5 text-purple-400 animate-pulse" /><span className="text-xs text-purple-400">Mic will activate automatically when AI finishes reading</span></>
@@ -868,16 +896,16 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                         </div>
                     )}
 
-                    <div className="px-6 py-4">
+                    <div className="px-3 sm:px-6 py-3 sm:py-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                     {/* Only show input during actual questions */}
                     {currentQuestion ? (
                         <>
-                            <form onSubmit={handleSubmitAnswer} className="flex gap-3 items-end">
+                            <form onSubmit={handleSubmitAnswer} className="flex flex-wrap sm:flex-nowrap gap-2 sm:gap-3 items-end">
                                 {/* Mic button */}
                                 <button
                                     type="button"
                                     onClick={toggleMicrophone}
-                                    className={`flex-shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-200 shadow-lg active:scale-90 ${
+                                    className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center transition-all duration-200 shadow-lg active:scale-90 ${
                                         isListening
                                             ? "bg-gradient-to-br from-red-500 to-pink-600 border-2 border-red-400/60 text-white scale-105 shadow-red-500/40"
                                             : "bg-gradient-to-br from-purple-600 to-fuchsia-600 border-2 border-purple-400/40 text-white hover:scale-105 shadow-purple-500/25"
@@ -895,7 +923,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                                 </button>
 
                                 {/* Textarea + char count */}
-                                <div className="flex-1 relative">
+                                <div className="order-first sm:order-none basis-full sm:basis-auto flex-1 relative">
                                     <textarea
                                         value={answer}
                                         onChange={(e) => {
@@ -916,7 +944,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                                         placeholder={
                                             isListening
                                                 ? "🎤 Listening... speak your answer"
-                                                : "Click mic to speak, or type your answer here (Enter to submit)"
+                                                : "Tap the mic to speak, or type your answer"
                                         }
                                         className={`w-full px-4 py-3 rounded-xl text-white placeholder-gray-600 text-sm focus:outline-none transition-all resize-none bg-white/5 ${
                                             isListening
@@ -948,7 +976,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                                     type="button"
                                     onClick={() => setShowSkipModal(true)}
                                     disabled={submitting || generating || !currentQuestion}
-                                    className="flex-shrink-0 px-4 h-12 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-medium text-sm hover:bg-white/10 hover:text-white transition-all duration-200 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    className="flex-1 sm:flex-none flex-shrink-0 px-4 h-12 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-medium text-sm hover:bg-white/10 hover:text-white transition-all duration-200 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                     Skip
                                 </button>
@@ -956,7 +984,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                                 {/* Submit */}
                                 <button type="submit"
                                     disabled={submitting || generating || !currentQuestion || !answer.trim()}
-                                    className="flex-shrink-0 px-6 h-12 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold text-sm flex items-center justify-center hover:from-green-500 hover:to-emerald-500 transition-all duration-200 shadow-lg shadow-green-500/20 hover:shadow-green-500/35 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 gap-2">
+                                    className="flex-[2] sm:flex-none flex-shrink-0 px-6 h-12 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold text-sm flex items-center justify-center hover:from-green-500 hover:to-emerald-500 transition-all duration-200 shadow-lg shadow-green-500/20 hover:shadow-green-500/35 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 gap-2">
                                     {submitting ? (
                                         <><Loader2 className="w-4 h-4 animate-spin" />Analyzing...</>
                                     ) : (
@@ -968,7 +996,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                             {/* Status hint */}
                             <div className="mt-2.5 flex items-center justify-between px-1">
                                 <p className={`text-xs font-medium ${isListening ? "text-red-400" : "text-gray-600"}`}>
-                                    {isListening ? "🔴 Recording — click mic to stop" : "Enter to submit · Shift+Enter for new line"}
+                                    {isListening ? "🔴 Recording — tap mic to stop" : <><span className="hidden sm:inline">Enter to submit · Shift+Enter for new line</span><span className="sm:hidden">Type or speak your answer</span></>}
                                 </p>
                                 <p className="text-xs text-gray-700">
                                     {answer.trim() ? `${answer.split(/\s+/).filter(Boolean).length} words` : "No answer yet"}

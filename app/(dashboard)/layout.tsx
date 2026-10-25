@@ -6,7 +6,7 @@ import { useClerk, useUser } from "@clerk/nextjs";
 import { useState, useEffect, useTransition } from "react";
 import {
     LayoutDashboard, Brain, BarChart2, Clock, Settings,
-    LogOut, ChevronRight, Sparkles, User, Loader2
+    LogOut, ChevronRight, Sparkles, User, Loader2, Menu, X
 } from "lucide-react";
 import PrepMateLogo from "@/components/ui/PrepMateLogo";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -28,12 +28,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const [isPending, startTransition] = useTransition();
     const [loadingHref, setLoadingHref] = useState<string | null>(null);
     const [topBarProgress, setTopBarProgress] = useState(0);
+    const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
     // Clear loading state when pathname changes (navigation complete)
     useEffect(() => {
         setLoadingHref(null);
         setTopBarProgress(0);
+        setMobileNavOpen(false);
     }, [pathname]);
+
+    // Lock background scroll while the mobile drawer is open; close it on Escape
+    useEffect(() => {
+        if (!mobileNavOpen) return;
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileNavOpen(false); };
+        window.addEventListener("keydown", onKey);
+        return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
+    }, [mobileNavOpen]);
 
     // Animate top progress bar while loading
     useEffect(() => {
@@ -45,7 +57,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }, [loadingHref]);
 
     const handleNavClick = (e: React.MouseEvent, href: string) => {
-        if (href === pathname) return;
+        if (href === pathname) { setMobileNavOpen(false); return; }
         e.preventDefault();
         setLoadingHref(href);
         startTransition(() => {
@@ -73,14 +85,49 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
             )}
 
-            {/* ── Sidebar ── */}
-            <aside className="fixed left-0 top-0 bottom-0 w-64 flex flex-col border-r border-white/5 z-40 bg-[#0a0514]/80 backdrop-blur-xl">
+            {/* ── Mobile top bar ── */}
+            <header className="lg:hidden fixed top-0 inset-x-0 z-40 h-14 flex items-center justify-between px-4 border-b border-white/5 bg-[#0a0514]/90 backdrop-blur-xl pt-[env(safe-area-inset-top)]">
+                <button
+                    onClick={() => setMobileNavOpen(true)}
+                    className="-ml-2 p-2 rounded-lg text-gray-300 hover:text-white hover:bg-white/5 active:bg-white/10"
+                    aria-label="Open menu"
+                    aria-expanded={mobileNavOpen}
+                >
+                    <Menu className="w-5 h-5" />
+                </button>
+                <Link href="/dashboard" aria-label="PrepMate home">
+                    <PrepMateLogo size="sm" variant="horizontal" animated={false} />
+                </Link>
+                <a href="/profile" onClick={(e) => handleNavClick(e, "/profile")} aria-label="Profile"
+                    className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-fuchsia-600 flex items-center justify-center overflow-hidden">
+                    {clerkUser?.imageUrl
+                        ? <img src={clerkUser.imageUrl} alt="" className="w-full h-full object-cover" />
+                        : <User className="w-4 h-4 text-white" />}
+                </a>
+            </header>
+
+            {/* ── Mobile drawer backdrop ── */}
+            <div
+                onClick={() => setMobileNavOpen(false)}
+                className={`lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${mobileNavOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+                aria-hidden="true"
+            />
+
+            {/* ── Sidebar (drawer on mobile, fixed on desktop) ── */}
+            <aside className={`fixed left-0 top-0 bottom-0 w-72 max-w-[85vw] lg:w-64 flex flex-col border-r border-white/5 z-50 lg:z-40 bg-[#0a0514] lg:bg-[#0a0514]/80 backdrop-blur-xl transition-transform duration-300 ease-out lg:translate-x-0 ${mobileNavOpen ? "translate-x-0 shadow-2xl shadow-black" : "-translate-x-full"}`}>
 
                 {/* Logo */}
-                <div className="px-6 py-6 border-b border-white/5">
+                <div className="px-6 py-5 lg:py-6 border-b border-white/5 flex items-center justify-between">
                     <Link href="/dashboard">
                         <PrepMateLogo size="sm" variant="horizontal" animated={false} />
                     </Link>
+                    <button
+                        onClick={() => setMobileNavOpen(false)}
+                        className="lg:hidden -mr-2 p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5"
+                        aria-label="Close menu"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
                 </div>
 
                 {/* Nav */}
@@ -93,7 +140,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         return (
                             <a key={href} href={href}
                                 onClick={(e) => handleNavClick(e, href)}
-                                className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${isActive
+                                className={`group flex items-center gap-3 px-3 py-3 lg:py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${isActive
                                     ? "bg-purple-500/15 text-purple-300 border border-purple-500/20 shadow-lg shadow-purple-500/10"
                                     : isLoading
                                     ? "bg-white/5 text-gray-300 border border-white/10"
@@ -127,7 +174,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
 
                 {/* User */}
-                <div className="px-3 pb-5 border-t border-white/5 pt-4">
+                <div className="px-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] border-t border-white/5 pt-4">
                     <div className="flex items-center gap-3 px-3 py-2.5">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-fuchsia-600 flex items-center justify-center flex-shrink-0 overflow-hidden">
                             {clerkUser?.imageUrl
@@ -145,8 +192,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         </div>
                         <button
                             onClick={() => signOut({ redirectUrl: "/" })}
-                            className="text-gray-500 hover:text-red-400 transition-colors flex-shrink-0"
+                            className="p-2 -mr-2 text-gray-500 hover:text-red-400 transition-colors flex-shrink-0"
                             title="Sign out"
+                            aria-label="Sign out"
                         >
                             <LogOut className="w-4 h-4" />
                         </button>
@@ -155,7 +203,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </aside>
 
             {/* ── Main content ── */}
-            <main className="flex-1 ml-64 min-h-screen relative">
+            <main className="flex-1 min-w-0 lg:ml-64 pt-14 lg:pt-0 min-h-screen relative">
 
                 {/* Full-screen page transition overlay */}
                 {loadingHref && (

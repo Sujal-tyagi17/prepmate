@@ -329,3 +329,6 @@ body {
   background: rgba(168, 85, 247, 0.3);
   color: white;
 }
+/* Horizontal scroll rows (filter chips, tabs) without a visible scrollbar */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
