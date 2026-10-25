@@ -7,6 +7,7 @@
 Practice interviews • Get instant feedback • Land your dream job
 
 [![Live Demo](https://img.shields.io/badge/demo-live-success?style=for-the-badge)](https://prepmate-interview.vercel.app/)
+[![CI](https://github.com/Sujal-tyagi17/prepmate/actions/workflows/ci.yml/badge.svg)](https://github.com/Sujal-tyagi17/prepmate/actions/workflows/ci.yml)
 [![Next.js](https://img.shields.io/badge/Next.js-14-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-blue?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 
@@ -109,6 +110,19 @@ prepmate/
 ```
 
 ---
+
+## 🧪 Testing
+
+End-to-end tests (Playwright) run the real Next.js app and API routes against an in-memory database and a local fake AI server, so they need no API keys or Supabase project.
+
+```bash
+npm run typecheck      # TypeScript
+npm run test:e2e       # e2e suite (starts the app + fake AI automatically)
+```
+
+The suite covers the full interview lifecycle — start screen and session clock, intro → follow-ups → wrap-up, background scoring, reload/resume, skip, time-up, code answers, hands-free mode, scoring failures and retries, feedback and analytics consistency — on desktop and mobile viewports. It runs on every push and pull request via GitHub Actions (`.github/workflows/ci.yml`).
+
+How it works: setting `E2E=1` makes `next.config.js` swap Clerk and Supabase for stand-ins in `tests/e2e/support/`, and `GROQ_BASE_URL` points the AI client at `tests/e2e/support/fake-ai-server.mjs`. Production builds never include these.
 
 ## 🚢 Deployment
 

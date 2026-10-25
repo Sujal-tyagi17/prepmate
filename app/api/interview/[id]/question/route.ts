@@ -9,6 +9,7 @@ interface NextTurn {
     kind?: "intro" | "follow-up" | "new-topic" | "closing";
     transition?: string;
     question?: string;
+    format?: "text" | "code";
 }
 
 /** Strip quotes/markdown the model sometimes adds around spoken text. */
@@ -32,6 +33,15 @@ export async function POST(
         const { id } = await params;
         const supabase = createClient();
 
+        // The client sends the answer it just submitted, so the next question can be generated
+        // in parallel with scoring (the answer may not be in the database yet).
+        let lastQuestion = "", lastAnswer = "";
+        try {
+            const body = await req.json();
+            lastQuestion = typeof body?.lastQuestion === "string" ? body.lastQuestion : "";
+            lastAnswer = typeof body?.lastAnswer === "string" ? body.lastAnswer : "";
+        } catch { /* no body */ }
+
         const { data: interview, error: interviewError } = await supabase
             .from('interviews')
             .select(`
@@ -49,9 +59,12 @@ export async function POST(
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
-        const answers = [...(interview.answers || [])].sort(
+        const answers: any[] = [...(interview.answers || [])].sort(
             (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
         );
+        if (lastQuestion && lastAnswer && !answers.some((a) => a.question_text === lastQuestion)) {
+            answers.push({ question_text: lastQuestion, user_answer: lastAnswer, score: null });
+        }
 
         const { total, elapsed, remaining, closingWindow } = sessionTiming(interview);
         const phase = pickPhase(answers.length, remaining, closingWindow);
@@ -95,7 +108,7 @@ export async function POST(
                 `${turnPrompt}\n\nActually, reply with ONLY the question text — no JSON.`,
                 systemPrompt
             );
-            turn = { kind: phase === "core" ? "new-topic" : phase, transition: "", question: text };
+            turn = { kind: phase === "core" ? "new-topic" : phase, transition: "", question: text, format: "text" };
         }
 
         const question = clean(turn.question);
@@ -112,6 +125,7 @@ export async function POST(
             question,
             transition: phase === "intro" ? "" : clean(turn.transition),
             kind,
+            format: turn.format === "code" ? "code" : "text",
             ...timing,
         });
     } catch (error: any) {

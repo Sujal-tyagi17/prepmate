@@ -1,7 +1,23 @@
 /** @type {import('next').NextConfig} */
 process.env.NEXT_TELEMETRY_DISABLED = '1';
+const path = require('path');
+
+// E2E=1 swaps Clerk + Supabase for in-memory test stand-ins (tests/e2e/support). Never set this in production.
+const E2E = process.env.E2E === '1';
 
 const nextConfig = {
+    webpack: (config) => {
+        if (E2E) {
+            const stub = (f) => path.resolve(__dirname, 'tests/e2e/support', f);
+            Object.assign(config.resolve.alias, {
+                '@clerk/nextjs$': stub('clerk.js'),
+                '@clerk/nextjs/server$': stub('clerk-server.js'),
+                '@/lib/supabase/server$': stub('supabase-server.ts'),
+                [path.resolve(__dirname, 'lib/supabase/server')]: stub('supabase-server.ts'),
+            });
+        }
+        return config;
+    },
     reactStrictMode: true,
     compress: true,
     poweredByHeader: false,

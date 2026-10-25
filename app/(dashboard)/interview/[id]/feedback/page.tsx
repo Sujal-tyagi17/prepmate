@@ -8,6 +8,8 @@ import {
     BarChart2, Zap, Award, X, Sparkles
 } from "lucide-react";
 import { answeredScores, interviewScore } from "@/lib/scoring";
+import { averageRubric, parseFeedback } from "@/lib/answer-feedback";
+import AnswerText from "@/components/interview/AnswerText";
 
 interface QuestionBreakdown {
     question_text: string;
@@ -29,6 +31,19 @@ export default function FeedbackPage({ params }: { params: { id: string } }) {
     const confettiRef = useRef<boolean>(false);
     const [isPending, startTransition] = useTransition();
     const [navigatingTo, setNavigatingTo] = useState<string | null>(null);
+    // Real comparison: this interview vs the user's own other completed interviews
+    const [history, setHistory] = useState<{ avg: number; best: number; count: number } | null>(null);
+    useEffect(() => {
+        fetch("/api/analytics").then((r) => r.json()).then((d) => {
+            const others = (d?.analytics?.allInterviews || []).filter((iv: any) => iv.id !== params.id && iv.status === "completed" && iv.score > 0);
+            const scoresOf = others.map((iv: any) => iv.score as number);
+            setHistory({
+                count: scoresOf.length,
+                avg: scoresOf.length ? Math.round(scoresOf.reduce((a: number, b: number) => a + b, 0) / scoresOf.length) : 0,
+                best: scoresOf.length ? Math.max(...scoresOf) : 0,
+            });
+        }).catch(() => setHistory({ count: 0, avg: 0, best: 0 }));
+    }, [params.id]);
 
     useEffect(() => {
         fetchInterview();
@@ -162,7 +177,8 @@ export default function FeedbackPage({ params }: { params: { id: string } }) {
         ? Math.round(answers.reduce((sum: number, a: any) => sum + (a.user_answer?.split(" ").length || 0), 0) / answers.length)
         : 0;
 
-    const percentile = finalScore >= 85 ? 92 : finalScore >= 70 ? 78 : finalScore >= 55 ? 55 : 30;
+    const skills = averageRubric(answers.map((a: any) => a.feedback));
+    const durationMin = interview.duration ? Math.max(1, Math.round(interview.duration / 60)) : 0;
 
     return (
         <div className="min-h-screen bg-[#0a0514] text-white relative print:bg-white print:text-black">
@@ -324,11 +340,15 @@ export default function FeedbackPage({ params }: { params: { id: string } }) {
                         {interview.company ? ` · ${interview.company}` : ""}
                     </p>
 
-                    {/* Percentile badge */}
-                    <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full border ${scoreStyle.border} ${scoreStyle.bg}`}>
-                        <TrendingUp className={`w-3.5 h-3.5 ${scoreStyle.text}`} />
-                        <span className={`text-sm font-medium ${scoreStyle.text}`}>Top {100 - percentile}% of all users</span>
-                    </div>
+                    {/* Change vs the user's own average (only when there is history) */}
+                    {history && history.count > 0 && finalScore > 0 && (
+                        <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full border ${scoreStyle.border} ${scoreStyle.bg}`}>
+                            <TrendingUp className={`w-3.5 h-3.5 ${scoreStyle.text}`} />
+                            <span className={`text-sm font-medium ${scoreStyle.text}`}>
+                                {finalScore - history.avg >= 0 ? "+" : ""}{finalScore - history.avg} pts vs your average
+                            </span>
+                        </div>
+                    )}
                 </div>
 
                 {/* Unanswered Questions Warning */}
@@ -370,7 +390,7 @@ export default function FeedbackPage({ params }: { params: { id: string } }) {
                         { label: "Answered", value: `${answeredCount}/${totalQuestions}`, icon: MessageSquare, color: answeredCount === totalQuestions ? "text-emerald-400" : "text-orange-400" },
                         { label: "Avg Score", value: scores.length > 0 ? `${(scores.reduce((a: number, b: number) => a + b, 0) / scores.length).toFixed(1)}/10` : "N/A", icon: Star, color: "text-yellow-400" },
                         { label: "Avg Length", value: avgWordCount > 0 ? `${avgWordCount} words` : "N/A", icon: Clock, color: "text-blue-400" },
-                        { label: "Percentile", value: `${percentile}th`, icon: Award, color: "text-emerald-400" },
+                        { label: "Duration", value: durationMin > 0 ? `${durationMin} min` : "N/A", icon: Award, color: "text-emerald-400" },
                     ].map(({ label, value, icon: Icon, color }) => (
                         <div key={label} className="rounded-2xl p-4 border border-white/8 bg-white/3 text-center">
                             <Icon className={`w-4 h-4 ${color} mx-auto mb-2`} />
@@ -380,55 +400,51 @@ export default function FeedbackPage({ params }: { params: { id: string } }) {
                     ))}
                 </div>
 
-                {/* Performance metrics bars - Only show if questions were answered */}
-                {answeredCount > 0 && (
+                {/* Skill breakdown — averaged from the AI's per-answer rubric scores */}
+                {skills.length > 0 && (
                     <div className="rounded-2xl border border-white/8 bg-white/3 p-6 mb-6">
-                        <h3 className="font-semibold text-white mb-5 flex items-center gap-2">
+                        <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
                             <BarChart2 className="w-4 h-4 text-purple-400" /> Skill Breakdown
                         </h3>
+                        <p className="text-xs text-gray-500 mb-5">Averaged across {Math.max(...skills.map((k) => k.n))} scored answer{Math.max(...skills.map((k) => k.n)) === 1 ? "" : "s"}</p>
                         <div className="space-y-4">
-                            {[
-                                { label: "Communication Clarity", score: Math.min(100, finalScore + 5) },
-                                { label: "Technical Depth", score: Math.max(20, finalScore - 8) },
-                                { label: "STAR Structure", score: Math.min(100, finalScore + 2) },
-                                { label: "Response Conciseness", score: Math.max(20, finalScore - 3) },
-                                { label: "Confidence Level", score: Math.min(100, finalScore + 10) },
-                            ].map(({ label, score }) => (
-                            <div key={label}>
-                                <div className="flex justify-between mb-1.5">
-                                    <span className="text-sm text-gray-400">{label}</span>
-                                    <span className="text-sm font-medium text-white">{score}%</span>
+                            {skills.map(({ label, score }) => (
+                                <div key={label}>
+                                    <div className="flex justify-between mb-1.5">
+                                        <span className="text-sm text-gray-400">{label}</span>
+                                        <span className="text-sm font-medium text-white">{score}%</span>
+                                    </div>
+                                    <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                                        <div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-600 transition-all duration-1000" style={{ width: `${score}%` }} />
+                                    </div>
                                 </div>
-                                <div className="h-2 rounded-full bg-white/5 overflow-hidden">
-                                    <div
-                                        className="h-full rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-600 transition-all duration-1000"
-                                        style={{ width: `${score}%` }}
-                                    />
-                                </div>
-                            </div>
-                        ))}
+                            ))}
                         </div>
                     </div>
                 )}
 
-                {/* Comparison - Only show if questions were answered */}
-                {answeredCount > 0 && (
+                {/* Comparison with the user's own previous interviews */}
+                {answeredCount > 0 && history && (
                     <div className="rounded-2xl border border-white/8 bg-white/3 p-6 mb-6">
                         <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
-                            <Zap className="w-4 h-4 text-yellow-400" /> How You Compare
+                            <Zap className="w-4 h-4 text-yellow-400" /> Your Progress
                         </h3>
-                        <div className="grid grid-cols-3 gap-4">
-                            {[
-                                { label: "Your Score", value: `${finalScore}%`, highlight: true },
-                                { label: "Platform Average", value: "68%" },
-                                { label: "Top Performers", value: "89%" },
-                            ].map(({ label, value, highlight }) => (
-                                <div key={label} className={`rounded-xl p-4 text-center ${highlight ? "bg-purple-500/15 border border-purple-500/30" : "bg-white/3 border border-white/8"}`}>
-                                    <div className={`text-2xl font-bold mb-1 ${highlight ? "text-purple-300" : "text-white"}`}>{value}</div>
-                                    <div className="text-xs text-gray-500">{label}</div>
-                                </div>
-                            ))}
-                        </div>
+                        {history.count === 0 ? (
+                            <p className="text-sm text-gray-400">This is your first completed interview — your next sessions will be compared against this one.</p>
+                        ) : (
+                            <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                                {[
+                                    { label: "This Interview", value: `${finalScore}%`, highlight: true },
+                                    { label: `Your Average (${history.count})`, value: `${history.avg}%` },
+                                    { label: "Your Best", value: `${Math.max(history.best, finalScore)}%` },
+                                ].map(({ label, value, highlight }) => (
+                                    <div key={label} className={`rounded-xl p-3 sm:p-4 text-center ${highlight ? "bg-purple-500/15 border border-purple-500/30" : "bg-white/3 border border-white/8"}`}>
+                                        <div className={`text-xl sm:text-2xl font-bold mb-1 ${highlight ? "text-purple-300" : "text-white"}`}>{value}</div>
+                                        <div className="text-xs text-gray-500">{label}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -493,14 +509,27 @@ export default function FeedbackPage({ params }: { params: { id: string } }) {
                                             <div className="h-px bg-white/5 mb-3" />
                                             <div className="mb-3">
                                                 <p className="text-xs text-gray-500 font-semibold mb-1">Your Answer:</p>
-                                                <p className="text-xs text-gray-400 italic leading-relaxed line-clamp-3">{a.user_answer}</p>
+                                                <AnswerText text={a.user_answer} className="text-xs text-gray-400 leading-relaxed" />
                                             </div>
-                                            {a.feedback && (
-                                                <div className="mb-3 p-3 rounded-lg bg-white/3 border border-white/5">
-                                                    <p className="text-xs text-gray-500 font-semibold mb-1">AI Feedback:</p>
-                                                    <p className="text-xs text-gray-300 leading-relaxed">{a.feedback}</p>
-                                                </div>
-                                            )}
+                                            {(() => {
+                                                const fb = parseFeedback(a.feedback);
+                                                return (
+                                                    <>
+                                                        {fb.text && (
+                                                            <div className="mb-3 p-3 rounded-lg bg-white/3 border border-white/5">
+                                                                <p className="text-xs text-gray-500 font-semibold mb-1">AI Feedback:</p>
+                                                                <p className="text-xs text-gray-300 leading-relaxed">{fb.text}</p>
+                                                            </div>
+                                                        )}
+                                                        {fb.strongerAnswer && (
+                                                            <div className="mb-3 p-3 rounded-lg bg-purple-500/5 border border-purple-500/20">
+                                                                <p className="text-xs text-purple-300 font-semibold mb-1">💡 A stronger answer would include:</p>
+                                                                <p className="text-xs text-gray-300 leading-relaxed">{fb.strongerAnswer}</p>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
                                             {/* Per-question strengths */}
                                             {a.strengths && a.strengths.length > 0 && (
                                                 <div className="mb-3 p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">

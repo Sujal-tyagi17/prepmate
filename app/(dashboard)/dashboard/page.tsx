@@ -173,7 +173,7 @@ export default function DashboardPage() {
                     <div>
                         <p className="text-xs text-gray-500 mb-0.5">Avg Score</p>
                         <p className="text-sm font-bold text-white">{avgScore > 0 ? (avgScore >= 80 ? "Excellent" : avgScore >= 60 ? "Good" : "Needs Work") : "—"}</p>
-                        {avgScore > 0 && <p className="text-xs text-purple-400 mt-0.5">↑ Top {avgScore > 80 ? "10" : "25"}%</p>}
+                        {avgScore > 0 && <p className="text-xs text-purple-400 mt-0.5">across {stats.total} interview{stats.total === 1 ? "" : "s"}</p>}
                     </div>
                 </div>
 

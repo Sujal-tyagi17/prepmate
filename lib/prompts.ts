@@ -83,7 +83,7 @@ If the candidate skipped, move to a different (possibly easier) topic without ma
 Set "kind" to "closing". The transition should briefly signal you're wrapping up (e.g. "We're almost at time, so one last question.").`,
         }[phase];
 
-        return `You are conducting a live, spoken mock interview.
+        return `You are Maya, conducting a live, spoken mock interview over a video call.
 Interview: ${type.replace("-", " ")} · ${difficulty} difficulty${role ? ` · role: ${role}` : ""}${company ? ` · company: ${company}` : ""}${hasJobDescription ? " · a job description was provided (see system context)" : ""}.
 Time: ${elapsedMinutes.toFixed(1)} min elapsed of ${totalMinutes} min.
 
@@ -97,34 +97,37 @@ Rules for your reply:
 - "transition": at most ONE short, natural sentence reacting to the last answer (e.g. "Got it, thanks for walking me through that."). No scores, no feedback, no lavish praise, and don't restate the question. Use "" for the intro.
 - "question": exactly ONE question, max 2 sentences, written to be spoken aloud — no markdown, code blocks, bullet points or numbering.
 - Never repeat or closely rephrase a question that was already asked.
+- "format": "code" ONLY if the question asks the candidate to actually write code or a SQL query; otherwise "text".
 
 Respond with ONLY this JSON:
-{"kind": "intro" | "follow-up" | "new-topic" | "closing", "transition": "<string>", "question": "<string>"}`;
+{"kind": "intro" | "follow-up" | "new-topic" | "closing", "transition": "<string>", "question": "<string>", "format": "text" | "code"}`;
     },
 
     evaluateAnswer: (question: string, answer: string, type: string) => `
-Evaluate this interview answer:
+Evaluate this interview answer.
 
 Question: ${question}
 Candidate's Answer: ${answer}
+${answer.includes("\`\`\`") ? "\nThe answer contains code in a fenced block — judge correctness, edge cases, time/space complexity and readability, as well as the explanation.\n" : ""}
+Score the answer on a 0-10 scale and also on each rubric dimension (0-10):
+- communication: clear, easy to follow
+- depth: technically / factually correct and sufficiently deep
+- structure: logical structure (STAR for behavioral, approach → details → trade-offs for technical)
+- examples: uses concrete examples, numbers or evidence
+- conciseness: to the point, no rambling
 
-Provide a detailed evaluation in the following JSON format:
+Respond with ONLY this JSON:
 {
   "score": <number 0-10>,
-  "feedback": "<overall feedback on the answer>",
-  "strengths": ["<strength 1>", "<strength 2>", ...],
-  "improvements": ["<area for improvement 1>", "<area for improvement 2>", ...],
-  "followUp": "<optional follow-up question to probe deeper>"
+  "feedback": "<2-3 sentences of specific feedback on this answer>",
+  "strengths": ["<strength>", ...],
+  "improvements": ["<specific improvement>", ...],
+  "rubric": {"communication": <0-10>, "depth": <0-10>, "structure": <0-10>, "examples": <0-10>, "conciseness": <0-10>},
+  "strongerAnswer": "<3-5 sentences describing what an excellent answer to this exact question would include, written as guidance the candidate can learn from>"
 }
 
-Scoring criteria for ${type} questions:
-- 0-3: Poor understanding, major gaps
-- 4-5: Basic understanding, some gaps
-- 6-7: Good understanding, minor gaps
-- 8-9: Strong understanding, well-articulated
-- 10: Exceptional answer, comprehensive
-
-Be constructive and specific in your feedback.
+Scoring guide for ${type} questions: 0-3 major gaps · 4-5 basic with gaps · 6-7 good, minor gaps · 8-9 strong and well-articulated · 10 exceptional.
+Be constructive, specific and honest.
 `,
 
     generateSummary: (answers: any[]) => `
@@ -133,7 +136,7 @@ Generate an overall interview summary based on these Q&A exchanges:
 ${answers.map((a, i) => `
 Q${i + 1}: ${a.question_text ?? a.questionText}
 A${i + 1}: ${a.user_answer ?? a.userAnswer}
-Score: ${a.score}/10
+Score: ${typeof a.score === "number" && a.score > 0 ? `${a.score}/10` : "not scored"}
 `).join("\n")}
 
 Provide a comprehensive summary in the following JSON format:
