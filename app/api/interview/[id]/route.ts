@@ -67,7 +67,7 @@ export async function PATCH(
         const supabase = createClient();
 
         const body = await req.json();
-        const { status, overallScore, overallFeedback } = body;
+        const { status, overallScore, overallFeedback, start } = body;
 
         // First, fetch the interview to verify ownership and get current answers
         const { data: interview, error: fetchError } = await supabase
@@ -88,6 +88,11 @@ export async function PATCH(
         }
 
         const updates: any = {};
+
+        // Candidate tapped "Start" — the session clock begins now (only before any answers)
+        if (start === true && interview.status === "in-progress" && (interview.answers || []).length === 0) {
+            updates.started_at = new Date().toISOString();
+        }
         if (status) updates.status = status;
         if (overallScore !== undefined) updates.overall_score = overallScore;
         if (overallFeedback) updates.overall_feedback = overallFeedback;

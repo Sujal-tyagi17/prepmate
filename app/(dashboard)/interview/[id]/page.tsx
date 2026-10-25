@@ -53,7 +53,10 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const synthRef = useRef<SpeechSynthesis | null>(null);
     const recognitionRef = useRef<any>(null);
-    const hasInitializedRef = useRef(false);
+    const [needsStart, setNeedsStart] = useState<"" | "fresh" | "resume">("");
+    const startClickedRef = useRef(false);
+    const voiceEnabledRef = useRef(true);
+    useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
     const questionInFlightRef = useRef(false); // prevents duplicate question requests (speech events can fire twice)
     // Speech callbacks can fire after the page unmounts (e.g. cancel() triggers onerror) — ignore them then
     const aliveRef = useRef(true);
@@ -139,14 +142,15 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
     // Session clock — counts down from the length chosen at setup (stored on the interview)
     const sessionTotal = plannedSessionSeconds(interview ?? {});
     const sessionStart = interview ? new Date(interview.started_at || interview.created_at).getTime() : now;
-    const sessionElapsed = Math.max(0, Math.floor((now - sessionStart) / 1000));
+    // The clock doesn't run until a fresh interview is actually started
+    const sessionElapsed = needsStart === "fresh" ? 0 : Math.max(0, Math.floor((now - sessionStart) / 1000));
     const sessionRemaining = sessionTotal - sessionElapsed;
     const answerSeconds = answerStartedAt ? Math.floor((now - answerStartedAt) / 1000) : 0;
     const kindLabel: Record<string, string> = { intro: "Introduction", "follow-up": "Follow-up", "new-topic": "", closing: "Wrap-up" };
 
     // Session time management: heads-ups, then a graceful finish instead of a hard cutoff
     useEffect(() => {
-        if (!interview || completed || endingInterview || loading) return;
+        if (!interview || completed || endingInterview || loading || needsStart) return;
 
         if (sessionRemaining <= 300 && sessionRemaining > 60 && !warnedRef.current.five && sessionTotal > 360) {
             warnedRef.current.five = true;
@@ -200,6 +204,79 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
+    /**
+     * Speak text and resolve when done. Never blocks the interview: resolves on end, error,
+     * if the browser silently ignores speak() (iOS without a user gesture), or after a max duration.
+     */
+    const speakAsync = (text: string): Promise<void> => new Promise((resolve) => {
+        const synth = synthRef.current;
+        if (!text || !voiceEnabledRef.current || !synth) return resolve();
+        let done = false, started = false;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            clearTimeout(probe); clearTimeout(hard);
+            setIsSpeaking(false);
+            resolve();
+        };
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = "en-US"; u.rate = 0.95; u.pitch = 1.0; u.volume = 1.0;
+        const voices = synth.getVoices();
+        const preferred = voices.find(v => v.lang.startsWith("en") && /female|samantha|google us/i.test(v.name)) || voices.find(v => v.lang.startsWith("en"));
+        if (preferred) u.voice = preferred;
+        u.onstart = () => { started = true; };
+        u.onend = finish;
+        u.onerror = finish;
+        const probe = setTimeout(() => { if (!started && !synth.speaking) finish(); }, 2000);
+        const hard = setTimeout(finish, Math.min(60000, 3000 + text.length * 85));
+        setIsSpeaking(true);
+        synth.speak(u);
+    });
+
+    /** Runs inside the tap handler, so audio and mic are allowed on mobile. */
+    const handleStart = async () => {
+        if (startClickedRef.current || !interview) return;
+        startClickedRef.current = true;
+        const mode = needsStart;
+        setNeedsStart("");
+
+        // Unlock speech synthesis on iOS/Android: speak (synchronously) inside the gesture
+        try {
+            const synth = synthRef.current;
+            if (synth && voiceEnabledRef.current) {
+                synth.cancel();
+                const unlock = new SpeechSynthesisUtterance(" ");
+                unlock.volume = 0;
+                synth.speak(unlock);
+            }
+        } catch (_) {}
+
+        if (mode === "resume") {
+            generateQuestion();
+            return;
+        }
+
+        // Fresh interview: start the session clock now, not when the page was opened
+        const nowIso = new Date().toISOString();
+        setInterview((iv: any) => ({ ...iv, started_at: nowIso }));
+        fetch(`/api/interview/${params.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ start: true }),
+        }).catch(() => {});
+
+        const firstName = (interview.user?.name || userName || "").split(" ")[0] || "there";
+        const minutes = Math.round(plannedSessionSeconds(interview) / 60);
+        const position = interview.role ? `the ${interview.role} position` : "this interview";
+        const greeting = `Hello ${firstName}! Welcome to your AI-powered interview.`;
+        const intro = `I'm your AI interviewer for ${position}${interview.company ? ` at ${interview.company}` : ""}. This is a ${minutes}-minute, ${interview.difficulty} difficulty ${interview.type.replace("-", " ")} interview. There's no timer on individual questions — answer at your own pace, and I may ask follow-ups just like a real interviewer. Let's start with a quick introduction.`;
+        setMessages([{ role: "ai", content: greeting }, { role: "ai", content: intro }]);
+
+        // Fetch the first question while the intro is being spoken; show it once speech ends
+        const introSpoken = speakAsync(greeting).then(() => speakAsync(intro));
+        generateQuestion(introSpoken);
+    };
+
     const fetchInterview = async () => {
         try {
             const response = await fetch(`/api/interview/${params.id}`);
@@ -226,67 +303,10 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                 
                 if (data.interview.status === "completed") {
                     setCompleted(true);
-                } else if (data.interview.answers.length > 0) {
-                    if (!hasInitializedRef.current) {
-                        hasInitializedRef.current = true;
-                        setTimeout(() => generateQuestion(), 800);
-                    }
-                } else if (data.interview.answers.length === 0) {
-                    const firstName = data.interview.user?.name?.split(' ')[0] || "there";
-                    const greeting = `Hello ${firstName}! Welcome to your AI-powered interview.`;
-                    const intro = `I'm your AI interviewer for the ${data.interview.role || 'this'} position${data.interview.company ? ` at ${data.interview.company}` : ''}. This is a ${Math.round(plannedSessionSeconds(data.interview) / 60)}-minute, ${data.interview.difficulty} difficulty ${data.interview.type.replace('-', ' ')} interview. There's no timer on individual questions — answer at your own pace, and I may ask follow-ups just like a real interviewer. Let's start with a quick introduction.`;
-
-                    // Always show greeting/intro messages immediately (even on StrictMode remount)
-                    setMessages([
-                        { role: "ai", content: greeting },
-                        { role: "ai", content: intro }
-                    ]);
-
-                    // Guard only the voice+question-generation side (prevents double API calls)
-                    if (hasInitializedRef.current) return;
-                    hasInitializedRef.current = true;
-                    
-                    // Speak greeting and intro sequentially using speech events
-                    if (voiceEnabled && synthRef.current) {
-                        const greetingUtterance = new SpeechSynthesisUtterance(greeting);
-                        greetingUtterance.rate = 0.9;
-                        greetingUtterance.pitch = 1.0;
-                        greetingUtterance.volume = 1.0;
-                        
-                        greetingUtterance.onend = () => {
-                            // After greeting finishes, speak intro
-                            const introUtterance = new SpeechSynthesisUtterance(intro);
-                            introUtterance.rate = 0.9;
-                            introUtterance.pitch = 1.0;
-                            introUtterance.volume = 1.0;
-                            
-                            introUtterance.onend = () => {
-                                // After intro finishes, generate first question
-                                setIsSpeaking(false);
-                                setTimeout(() => generateQuestion(), 1000);
-                            };
-                            
-                            introUtterance.onerror = () => {
-                                setIsSpeaking(false);
-                                setTimeout(() => generateQuestion(), 1000);
-                            };
-                            
-                            setIsSpeaking(true);
-                            synthRef.current?.speak(introUtterance);
-                        };
-                        
-                        greetingUtterance.onerror = () => {
-                            // If greeting fails, still try to show intro and question
-                            setIsSpeaking(false);
-                            setTimeout(() => generateQuestion(), 1000);
-                        };
-                        
-                        setIsSpeaking(true);
-                        synthRef.current.speak(greetingUtterance);
-                    } else {
-                        // If voice disabled, just generate question after delay
-                        setTimeout(() => generateQuestion(), 2000);
-                    }
+                } else {
+                    // Wait for a tap before starting: mobile browsers (iOS especially) only allow
+                    // speech audio that starts from a user gesture, and the clock should start then too.
+                    setNeedsStart(data.interview.answers.length > 0 ? "resume" : "fresh");
                 }
             } else {
                 toast.error(data.error || "Failed to load interview");
@@ -298,7 +318,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
         } finally { setLoading(false); }
     };
 
-    const generateQuestion = async () => {
+    const generateQuestion = async (waitFor?: Promise<void>) => {
         if (!aliveRef.current) return;
         // The session ends on time, not after a fixed number of questions
         if (timeUpRef.current) {
@@ -326,6 +346,8 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                 return;
             }
             if (data.success) {
+                if (waitFor) await waitFor; // e.g. let the spoken intro finish first
+                if (!aliveRef.current) return;
                 // The interviewer's short reaction to the previous answer goes into the conversation
                 if (data.transition) {
                     setMessages(prev => [...prev, { role: "ai", content: data.transition }]);
@@ -339,10 +361,10 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                     questionNumberRef.current = next;
                     return next;
                 });
-                // Question added to messages together with the answer in handleSubmitAnswer
-                // Answer clock and mic start AFTER the AI finishes reading (inside utterance.onend)
-
+                // Question added to messages together with the answer in handleSubmitAnswer.
+                // Answer clock + mic start after the AI finishes reading (or immediately if voice is off/blocked).
                 const startMicAndTimer = () => {
+                    if (!aliveRef.current) return;
                     setAnswerStartedAt(Date.now());
                     if (recognitionRef.current) {
                         try {
@@ -351,25 +373,8 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                         } catch (e) { console.log('Mic auto-start failed', e); }
                     }
                 };
-
-                // Speak the question fully, THEN start timer + mic
-                if (voiceEnabled && synthRef.current) {
-                    synthRef.current.cancel();
-                    setIsSpeaking(true);
-                    const utterance = new SpeechSynthesisUtterance(data.transition ? `${data.transition} ${data.question}` : data.question);
-                    utterance.rate = 0.9;
-                    utterance.pitch = 1.0;
-                    utterance.volume = 1.0;
-                    const voices = synthRef.current.getVoices();
-                    const preferredVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Female'));
-                    if (preferredVoice) utterance.voice = preferredVoice;
-                    utterance.onend = () => { setIsSpeaking(false); startMicAndTimer(); };
-                    utterance.onerror = () => { setIsSpeaking(false); startMicAndTimer(); };
-                    synthRef.current.speak(utterance);
-                } else {
-                    // Voice off — start timer + mic immediately
-                    startMicAndTimer();
-                }
+                synthRef.current?.cancel();
+                speakAsync(data.transition ? `${data.transition} ${data.question}` : data.question).then(startMicAndTimer);
             } else {
                 const msg = data.error || "Failed to generate question";
                 const isQuota = msg.toLowerCase().includes("quota");
@@ -785,7 +790,31 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                 {/* Messages — scrollable conversation history */}
                 <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6">
                     <div className="space-y-4 max-w-2xl mx-auto">
-                        {messages.length === 0 && !generating && !currentQuestion && (
+                        {needsStart && (
+                            <div className="min-h-[60vh] flex items-center justify-center">
+                                <div className="w-full max-w-md rounded-3xl border border-purple-500/25 bg-gradient-to-b from-purple-500/10 to-transparent p-6 sm:p-8 text-center">
+                                    <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-purple-600 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
+                                        <Mic className="w-7 h-7 text-white" />
+                                    </div>
+                                    <h2 className="text-xl font-bold text-white mb-1">
+                                        {needsStart === "resume" ? "Continue your interview" : "Ready when you are"}
+                                    </h2>
+                                    <p className="text-sm text-gray-400 mb-5">
+                                        {Math.round(sessionTotal / 60)} min · <span className="capitalize">{interview?.type?.replace("-", " ")} · {interview?.difficulty}</span>{interview?.company ? ` · ${interview.company}` : ""}
+                                    </p>
+                                    <ul className="text-left text-sm text-gray-300 space-y-2 mb-6">
+                                        <li className="flex items-start gap-2"><Volume2 className="w-4 h-4 mt-0.5 text-purple-400 flex-shrink-0" /> Turn your volume up (and silent mode off on iPhone) to hear the interviewer</li>
+                                        <li className="flex items-start gap-2"><Mic className="w-4 h-4 mt-0.5 text-purple-400 flex-shrink-0" /> Allow microphone access to answer by voice — or just type</li>
+                                        <li className="flex items-start gap-2"><Clock className="w-4 h-4 mt-0.5 text-purple-400 flex-shrink-0" /> {needsStart === "resume" ? "The clock kept running while you were away" : "The clock starts when you tap start"}</li>
+                                    </ul>
+                                    <button onClick={handleStart}
+                                        className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-500 hover:to-fuchsia-500 text-white font-semibold text-base shadow-lg shadow-purple-500/30 active:scale-[0.98] transition-all">
+                                        {needsStart === "resume" ? "Continue Interview" : "Start Interview"}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        {messages.length === 0 && !generating && !currentQuestion && !needsStart && (
                             <div className="text-center py-16">
                                 <div className="flex flex-col items-center gap-3">
                                     <div className="relative w-12 h-12">
@@ -921,7 +950,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
 
                     <div className="px-3 sm:px-6 py-3 sm:py-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                     {/* Only show input during actual questions */}
-                    {currentQuestion ? (
+                    {needsStart ? null : currentQuestion ? (
                         <>
                             <form onSubmit={handleSubmitAnswer} className="flex flex-wrap sm:flex-nowrap gap-2 sm:gap-3 items-end">
                                 {/* Mic button */}
