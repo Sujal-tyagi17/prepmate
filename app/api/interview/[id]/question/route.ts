@@ -1,8 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
-import { generateText } from "@/lib/ai";
+import { generateJSON, generateText } from "@/lib/ai";
 import { INTERVIEW_PROMPTS } from "@/lib/prompts";
+import { pickPhase, sessionTiming } from "@/lib/interview-session";
+
+interface NextTurn {
+    kind?: "intro" | "follow-up" | "new-topic" | "closing";
+    transition?: string;
+    question?: string;
+}
+
+/** Strip quotes/markdown the model sometimes adds around spoken text. */
+function clean(text: string | undefined): string {
+    return (text ?? "")
+        .replace(/^["'\s]+|["'\s]+$/g, "")
+        .replace(/[*_`#]/g, "")
+        .trim();
+}
 
 export async function POST(
     req: NextRequest,
@@ -21,7 +36,7 @@ export async function POST(
             .from('interviews')
             .select(`
                 *,
-                answers (question_text)
+                answers (question_text, user_answer, score, created_at)
             `)
             .eq('id', id)
             .single();
@@ -34,8 +49,18 @@ export async function POST(
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
-        // Collect previous questions to avoid repeats
-        const previousQuestions = (interview.answers || []).map((a: any) => a.question_text);
+        const answers = [...(interview.answers || [])].sort(
+            (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+
+        const { total, elapsed, remaining, closingWindow } = sessionTiming(interview);
+        const phase = pickPhase(answers.length, remaining, closingWindow);
+        const timing = { totalSeconds: total, elapsedSeconds: elapsed, remainingSeconds: remaining };
+
+        // Time is up — tell the client to wrap up instead of asking another question.
+        if (phase === "done") {
+            return NextResponse.json({ success: true, done: true, ...timing });
+        }
 
         const systemPrompt = INTERVIEW_PROMPTS.systemPrompt(
             interview.type,
@@ -45,25 +70,50 @@ export async function POST(
             interview.resume_text,
             interview.job_description
         );
-        const userPrompt = INTERVIEW_PROMPTS.generateQuestion(
-            interview.type,
-            interview.difficulty,
-            previousQuestions,
-            interview.role,
-            interview.resume_text,
-            interview.job_description
-        );
 
-        const question = await generateText(userPrompt, systemPrompt);
+        const turnPrompt = INTERVIEW_PROMPTS.nextTurn({
+            phase,
+            type: interview.type,
+            difficulty: interview.difficulty,
+            role: interview.role ?? undefined,
+            company: interview.company ?? undefined,
+            hasResume: !!interview.resume_text,
+            hasJobDescription: !!interview.job_description,
+            transcript: answers.map((a: any) => ({ question: a.question_text, answer: a.user_answer, score: a.score })),
+            elapsedMinutes: elapsed / 60,
+            remainingMinutes: Math.max(0, remaining) / 60,
+            totalMinutes: Math.round(total / 60),
+        });
 
-        if (!question) {
-            return NextResponse.json(
-                { error: "Failed to generate question" },
-                { status: 500 }
+        let turn: NextTurn;
+        try {
+            turn = await generateJSON<NextTurn>(turnPrompt, systemPrompt);
+        } catch (parseErr) {
+            // Model didn't return valid JSON — fall back to plain text as the question.
+            console.warn("nextTurn JSON parse failed, falling back to text:", (parseErr as any)?.message);
+            const text = await generateText(
+                `${turnPrompt}\n\nActually, reply with ONLY the question text — no JSON.`,
+                systemPrompt
             );
+            turn = { kind: phase === "core" ? "new-topic" : phase, transition: "", question: text };
         }
 
-        return NextResponse.json({ success: true, question });
+        const question = clean(turn.question);
+        if (!question) {
+            return NextResponse.json({ error: "Failed to generate question" }, { status: 500 });
+        }
+
+        const kind = phase === "core"
+            ? (turn.kind === "follow-up" ? "follow-up" : "new-topic")
+            : phase; // intro / closing are decided by time, not by the model
+
+        return NextResponse.json({
+            success: true,
+            question,
+            transition: phase === "intro" ? "" : clean(turn.transition),
+            kind,
+            ...timing,
+        });
     } catch (error: any) {
         console.error("Error generating question:", error);
         const isQuota = error?.message?.includes("quota") || error?.message?.includes("429");

@@ -40,6 +40,68 @@ ${previousQuestions.length > 0 ? `Previous questions asked:\n${previousQuestions
 Return ONLY the question text, nothing else.
 `,
 
+    /**
+     * Decide the interviewer's next turn in a time-boxed, conversational interview.
+     * Returns JSON: { kind, transition, question }.
+     */
+    nextTurn: (opts: {
+        phase: "intro" | "core" | "closing";
+        type: string;
+        difficulty: string;
+        role?: string;
+        company?: string;
+        hasResume: boolean;
+        hasJobDescription: boolean;
+        transcript: { question: string; answer: string; score?: number | null }[];
+        elapsedMinutes: number;
+        remainingMinutes: number;
+        totalMinutes: number;
+    }) => {
+        const { phase, type, difficulty, role, company, hasResume, hasJobDescription, transcript, elapsedMinutes, remainingMinutes, totalMinutes } = opts;
+        const clip = (t: string, n: number) => (t && t.length > n ? t.slice(0, n) + "…" : t || "");
+        // Older exchanges only need the question (to avoid repeats); recent ones need the full answer.
+        const recentStart = Math.max(0, transcript.length - 8);
+        const history = transcript.length === 0
+            ? "(no questions asked yet)"
+            : transcript.map((t, i) => i < recentStart
+                ? `Q${i + 1}: ${clip(t.question, 200)} [answered earlier]`
+                : `Q${i + 1}: ${t.question}\nCandidate: ${t.answer === "[No answer provided]" ? "(skipped this question)" : clip(t.answer, 900)}${typeof t.score === "number" ? `\n(internal score: ${t.score}/10)` : ""}`
+            ).join("\n\n");
+
+        const phaseInstructions = {
+            intro: `This is the very start of the interview (the greeting has already been said).
+Ask the candidate to introduce themselves — e.g. a quick walkthrough of their background${role ? ` and what draws them to the ${role} role` : ""}.
+Keep it warm and natural, exactly like a real interviewer opening the conversation.${hasResume ? " You may mention that you've had a look at their resume." : ""}
+Set "kind" to "intro" and "transition" to "" (empty).`,
+            core: `Continue the interview like a real ${type.replace("-", " ")} interviewer would. Read the candidate's LAST answer carefully, then choose ONE:
+  (a) "follow-up" — probe deeper when the last answer was vague, missed something important, made an interesting claim, or mentioned a project/decision worth digging into. Never ask more than 2 follow-ups in a row on the same topic.
+  (b) "new-topic" — move on when the topic is covered well, the candidate skipped, or you've already followed up twice.
+Structure the interview naturally over time: first part = background, resume and motivation; middle = the main ${type.replace("-", " ")} questions at ${difficulty} difficulty; adapt difficulty to how the candidate is doing (raise it after strong answers, ease off after weak or skipped ones).
+Pacing: ${remainingMinutes.toFixed(1)} of ${totalMinutes} minutes remain. ${remainingMinutes < 6 ? "Time is getting short — ask focused questions that can be answered in 2–3 minutes; do NOT start a large new design problem." : "Plan for answers of roughly 2–4 minutes each."}
+If the candidate skipped, move to a different (possibly easier) topic without making a big deal of it.`,
+            closing: `The interview is almost out of time (${remainingMinutes.toFixed(1)} minutes left). Ask ONE final wrap-up question, as real interviewers do at the end — for example asking what makes them a strong fit${role ? ` for the ${role} role` : ""}${company ? ` at ${company}` : ""}, or anything important they'd like to add that wasn't covered.
+Set "kind" to "closing". The transition should briefly signal you're wrapping up (e.g. "We're almost at time, so one last question.").`,
+        }[phase];
+
+        return `You are conducting a live, spoken mock interview.
+Interview: ${type.replace("-", " ")} · ${difficulty} difficulty${role ? ` · role: ${role}` : ""}${company ? ` · company: ${company}` : ""}${hasJobDescription ? " · a job description was provided (see system context)" : ""}.
+Time: ${elapsedMinutes.toFixed(1)} min elapsed of ${totalMinutes} min.
+
+Conversation so far:
+${history}
+
+What to do now:
+${phaseInstructions}
+
+Rules for your reply:
+- "transition": at most ONE short, natural sentence reacting to the last answer (e.g. "Got it, thanks for walking me through that."). No scores, no feedback, no lavish praise, and don't restate the question. Use "" for the intro.
+- "question": exactly ONE question, max 2 sentences, written to be spoken aloud — no markdown, code blocks, bullet points or numbering.
+- Never repeat or closely rephrase a question that was already asked.
+
+Respond with ONLY this JSON:
+{"kind": "intro" | "follow-up" | "new-topic" | "closing", "transition": "<string>", "question": "<string>"}`;
+    },
+
     evaluateAnswer: (question: string, answer: string, type: string) => `
 Evaluate this interview answer:
 
@@ -69,8 +131,8 @@ Be constructive and specific in your feedback.
 Generate an overall interview summary based on these Q&A exchanges:
 
 ${answers.map((a, i) => `
-Q${i + 1}: ${a.questionText}
-A${i + 1}: ${a.userAnswer}
+Q${i + 1}: ${a.question_text ?? a.questionText}
+A${i + 1}: ${a.user_answer ?? a.userAnswer}
 Score: ${a.score}/10
 `).join("\n")}
 

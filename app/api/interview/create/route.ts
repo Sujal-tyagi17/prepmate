@@ -19,7 +19,11 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         console.log("[CREATE INTERVIEW] Request body:", body);
         
-        const { type, difficulty, role, company, jobDescription, resumeUrl, resumeText, totalQuestions } = body;
+        const { type, difficulty, role, company, jobDescription, resumeUrl, resumeText, durationMinutes } = body;
+
+        // Planned session length: 5–30 minutes (default 15). Stored in seconds in `duration`
+        // while the interview is in progress; on completion it is overwritten with the actual time.
+        const minutes = Math.min(30, Math.max(5, Math.round(Number(durationMinutes) || 15)));
 
         if (!type || !difficulty) {
             return NextResponse.json(
@@ -42,6 +46,7 @@ export async function POST(req: NextRequest) {
                 job_description: jobDescription || null,
                 resume_url: resumeUrl || null,
                 resume_text: resumeText || null,
+                duration: minutes * 60,
                 status: "in-progress",
             })
             .select()
@@ -67,6 +72,7 @@ export async function POST(req: NextRequest) {
                 company: interview.company,
                 status: interview.status,
                 startedAt: interview.started_at,
+                durationSeconds: interview.duration,
             },
         });
     } catch (error) {

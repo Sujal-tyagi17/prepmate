@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, ArrowLeft, Loader2, Check, Upload, FileText, X } from "lucide-react";
+import { ArrowRight, ArrowLeft, Loader2, Check, Upload, FileText, X, Clock } from "lucide-react";
 
 const TYPES = [
     { value: "technical", label: "Technical", desc: "Algorithms, DSA, coding challenges", icon: "⚙️", color: "purple" },
@@ -18,6 +18,10 @@ const DIFFICULTIES = [
     { value: "medium", label: "Medium", desc: "Mid Level", icon: "⚡" },
     { value: "hard", label: "Hard", desc: "Senior Level", icon: "🔥" },
 ];
+
+// Interview length options (minutes). Max is 30.
+const DURATIONS = [10, 15, 20, 30];
+const MAX_DURATION = 30;
 
 const colorMap: Record<string, string> = {
     purple: "border-purple-500/50 bg-purple-500/10 text-purple-300",
@@ -41,7 +45,24 @@ export default function NewInterviewPage() {
         resumeUrl: "",
         resumeText: "",
         resumeFileName: "",
+        durationMinutes: 15,
     });
+
+    // Pre-select the user's preferred session length from Settings (capped at 30 min)
+    useEffect(() => {
+        fetch("/api/user/profile")
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+                const pref = Number(data?.user?.defaultDuration);
+                if (pref > 0) {
+                    const capped = Math.min(MAX_DURATION, pref);
+                    // snap to the nearest available option
+                    const nearest = DURATIONS.reduce((a, b) => (Math.abs(b - capped) < Math.abs(a - capped) ? b : a));
+                    setFormData((f) => ({ ...f, durationMinutes: nearest }));
+                }
+            })
+            .catch(() => {});
+    }, []);
 
     const steps = ["Interview Type", "Upload Resume", "Company & Role", "Start"];
     const totalSteps = 4;
@@ -125,7 +146,7 @@ export default function NewInterviewPage() {
             const res = await fetch("/api/interview/create", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ...formData, totalQuestions: 5 }),
+                body: JSON.stringify(formData),
             });
             const data = await res.json();
             if (data.success) router.push(`/interview/${data.interview.id}`);
@@ -224,6 +245,24 @@ export default function NewInterviewPage() {
                                                 ? "border-purple-500/40 bg-purple-500/10 text-purple-300"
                                                 : "border-white/8 bg-white/3 text-gray-400 hover:border-white/15"}`}>
                                             <span>{d.icon}</span>{d.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Interview length */}
+                            <div className="mt-6">
+                                <p className="text-sm font-medium text-gray-300 mb-1">Interview Length</p>
+                                <p className="text-xs text-gray-500 mb-3">The interviewer paces the conversation to fit this time — no per-question timer.</p>
+                                <div className="grid grid-cols-4 gap-2 sm:gap-3">
+                                    {DURATIONS.map((m) => (
+                                        <button type="button" key={m}
+                                            onClick={() => setFormData({ ...formData, durationMinutes: m })}
+                                            className={`py-3 rounded-xl border text-sm font-medium transition-all duration-200 active:scale-95 flex flex-col items-center justify-center ${formData.durationMinutes === m
+                                                ? "border-purple-500/40 bg-purple-500/10 text-purple-300"
+                                                : "border-white/8 bg-white/3 text-gray-400 hover:border-white/15"}`}>
+                                            <span className="text-base font-semibold">{m}</span>
+                                            <span className="text-[11px] opacity-70">min</span>
                                         </button>
                                     ))}
                                 </div>
@@ -378,6 +417,13 @@ export default function NewInterviewPage() {
                                 <div className="flex items-center justify-between">
                                     <span className="text-xs text-gray-500">Difficulty</span>
                                     <span className="text-sm font-medium text-white capitalize">{formData.difficulty}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-gray-500">Length</span>
+                                    <span className="text-sm font-medium text-white flex items-center gap-1.5">
+                                        <Clock className="w-3.5 h-3.5 text-purple-400" />
+                                        {formData.durationMinutes} min
+                                    </span>
                                 </div>
                                 {formData.resumeUrl && (
                                     <div className="flex items-center justify-between">

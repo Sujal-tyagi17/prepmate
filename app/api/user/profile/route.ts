@@ -63,7 +63,7 @@ export async function PATCH(req: NextRequest) {
         if (name) updates.name = name;
         if (bio !== undefined) updates.bio = bio;
         if (defaultDifficulty) updates.default_difficulty = defaultDifficulty;
-        if (defaultDuration) updates.default_duration = defaultDuration;
+        if (defaultDuration) updates.default_duration = Math.min(30, Math.max(5, Number(defaultDuration)));
         if (image) updates.image = image;
         if (focusAreas !== undefined) updates.focus_areas = focusAreas;
         if (notificationReminders !== undefined) updates.notification_reminders = notificationReminders;

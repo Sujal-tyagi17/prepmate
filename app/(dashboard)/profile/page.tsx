@@ -167,7 +167,7 @@ export default function ProfilePage() {
                 
                 // Load interview preferences
                 setDifficulty(data.user.defaultDifficulty || 'medium');
-                setSessionLength(data.user.defaultDuration || 30);
+                setSessionLength(Math.min(30, data.user.defaultDuration || 15));
                 setVoiceSpeed(data.user.voiceSpeed ?? 1.0);
                 setStrictMode(data.user.strictMode ?? false);
                 
@@ -622,14 +622,14 @@ export default function ProfilePage() {
                                     <input 
                                         type="range" 
                                         min={10} 
-                                        max={60} 
+                                        max={30} 
                                         step={5} 
                                         value={sessionLength}
                                         onChange={(e) => setSessionLength(Number(e.target.value))}
                                         disabled={savingPreferences}
                                         className="w-full h-2 rounded-full bg-white/10 appearance-none cursor-pointer accent-purple-500 disabled:opacity-50 disabled:cursor-not-allowed" 
                                     />
-                                    <div className="flex justify-between text-xs text-gray-600 mt-1"><span>10 min</span><span>60 min</span></div>
+                                    <div className="flex justify-between text-xs text-gray-600 mt-1"><span>10 min</span><span>30 min</span></div>
                                 </div>
 
                                 <div>

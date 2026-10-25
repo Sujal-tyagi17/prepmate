@@ -5,7 +5,17 @@ import { useRouter } from "next/navigation";
 import { Brain, Send, Loader2, CheckCircle, Mic, MicOff, Clock, Zap, Target, MessageSquare, ArrowLeft, Volume2, VolumeX } from "lucide-react";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { formatDuration } from "@/lib/utils";
+import { plannedSessionSeconds } from "@/lib/interview-session";
+
+/** After the session clock hits zero, the candidate gets this long to finish their current answer. */
+const GRACE_SECONDS = 120;
+/** After this long on one answer, show a gentle (non-blocking) nudge to wrap up. */
+const LONG_ANSWER_SECONDS = 180;
+
+const fmtClock = (secs: number) => {
+    const s = Math.max(0, Math.floor(secs));
+    return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+};
 
 interface Message {
     role: "ai" | "user";
@@ -28,19 +38,29 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
     const [micActive, setMicActive] = useState(false);
     const [speechError, setSpeechError] = useState("");
     const [endingInterview, setEndingInterview] = useState(false);
-    const [startTime] = useState(Date.now());
-    const [elapsedTime, setElapsedTime] = useState(0);
+    const [now, setNow] = useState(Date.now());
     const [userName, setUserName] = useState("");
     const [voiceEnabled, setVoiceEnabled] = useState(true);
     const [isListening, setIsListening] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
-    const [questionTimer, setQuestionTimer] = useState(120); // 2 minutes per question
-    const [timerActive, setTimerActive] = useState(false);
+    // Open-ended answers: we only track how long the current answer has been going (no cutoff)
+    const [answerStartedAt, setAnswerStartedAt] = useState<number | null>(null);
+    const [currentKind, setCurrentKind] = useState<string>("");
+    const lastKindRef = useRef<string>("");
+    const [timeUp, setTimeUp] = useState(false);
+    const timeUpRef = useRef(false);
+    const warnedRef = useRef<{ five?: boolean; one?: boolean; grace?: boolean }>({});
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const synthRef = useRef<SpeechSynthesis | null>(null);
     const recognitionRef = useRef<any>(null);
-    const questionTimerRef = useRef<NodeJS.Timeout | null>(null);
     const hasInitializedRef = useRef(false);
+    const questionInFlightRef = useRef(false); // prevents duplicate question requests (speech events can fire twice)
+    // Speech callbacks can fire after the page unmounts (e.g. cancel() triggers onerror) — ignore them then
+    const aliveRef = useRef(true);
+    useEffect(() => {
+        aliveRef.current = true;
+        return () => { aliveRef.current = false; };
+    }, []);
     const [questionNumber, setQuestionNumber] = useState(0);
     const questionNumberRef = useRef(0); // always-fresh copy for closures
 
@@ -109,74 +129,60 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
         }
     };
 
-    // Derived stats — messages only hold completed Q+A pairs now (current question is separate)
+    // Derived stats — messages hold transitions + completed Q+A pairs (current question is separate)
     const answeredCount = messages.filter(m => m.role === "user").length;
     const questionCount = answeredCount; // answered questions
-    const totalQuestions = Math.min(interview?.total_questions || 5, 20); // cap at 20
     const scores = messages.filter(m => m.role === "user" && m.score !== undefined).map(m => m.score as number);
     const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) : 0;
     const confidence = Math.min(100, Math.max(0, avgScore + (Math.random() * 10 - 5)));
 
-    // Question timer effect
+    // Session clock — counts down from the length chosen at setup (stored on the interview)
+    const sessionTotal = plannedSessionSeconds(interview ?? {});
+    const sessionStart = interview ? new Date(interview.started_at || interview.created_at).getTime() : now;
+    const sessionElapsed = Math.max(0, Math.floor((now - sessionStart) / 1000));
+    const sessionRemaining = sessionTotal - sessionElapsed;
+    const answerSeconds = answerStartedAt ? Math.floor((now - answerStartedAt) / 1000) : 0;
+    const kindLabel: Record<string, string> = { intro: "Introduction", "follow-up": "Follow-up", "new-topic": "", closing: "Wrap-up" };
+
+    // Session time management: heads-ups, then a graceful finish instead of a hard cutoff
     useEffect(() => {
-        if (timerActive && questionTimer > 0) {
-            // Show warning at 30 seconds
-            if (questionTimer === 30) {
-                toast('⚠️ 30 seconds remaining!', { duration: 3000 });
-                if (synthRef.current && voiceEnabled) {
-                    const utterance = new SpeechSynthesisUtterance("30 seconds remaining");
-                    utterance.rate = 1.0;
-                    synthRef.current.speak(utterance);
-                }
-            }
-            
-            questionTimerRef.current = setInterval(() => {
-                setQuestionTimer(prev => {
-                    if (prev <= 1) {
-                        setTimerActive(false);
-                        // Check if user has provided an answer
-                        if (answer.trim()) {
-                            toast.success("⏰ Time's up! Submitting your answer...", { duration: 2000 });
-                            // Auto-submit answer when time runs out but only if there's an answer
-                            if (currentQuestion && !submitting) {
-                                setTimeout(() => {
-                                    handleSubmitAnswer({ preventDefault: () => {} } as any);
-                                }, 500);
-                            }
-                        } else {
-                            toast.error("Time's up! Question skipped - no answer provided.");
-                            // Save skipped question text to DB before moving on
-                            const skippedQ = currentQuestion;
-                            setAnswer("");
-                            setCurrentQuestion("");
-                            setTimeout(async () => {
-                                await saveSkippedQuestion(skippedQ);
-                                generateQuestion();
-                            }, 1500);
-                        }
-                        return 0;
-                    }
-                    return prev - 1;
-                });
-            }, 1000);
-        } else {
-            if (questionTimerRef.current) {
-                clearInterval(questionTimerRef.current);
+        if (!interview || completed || endingInterview || loading) return;
+
+        if (sessionRemaining <= 300 && sessionRemaining > 60 && !warnedRef.current.five && sessionTotal > 360) {
+            warnedRef.current.five = true;
+            toast("About 5 minutes left in this interview", { icon: "⏳", duration: 3000 });
+        }
+        if (sessionRemaining <= 60 && sessionRemaining > 0 && !warnedRef.current.one) {
+            warnedRef.current.one = true;
+            toast("About 1 minute left", { icon: "⏳", duration: 3000 });
+        }
+
+        if (sessionRemaining <= 0 && !timeUpRef.current) {
+            timeUpRef.current = true;
+            setTimeUp(true);
+            if (currentQuestion && !submitting) {
+                // Don't cut the candidate off mid-answer — let them finish, then wrap up.
+                toast("Time's up — finish this answer and we'll wrap up.", { icon: "⏰", duration: 5000 });
+            } else if (!submitting && !generating) {
+                handleEndInterview();
             }
         }
-        
-        return () => {
-            if (questionTimerRef.current) {
-                clearInterval(questionTimerRef.current);
+
+        // Grace period exhausted: submit whatever they have (or end) so the session can't run forever.
+        if (timeUpRef.current && sessionRemaining <= -GRACE_SECONDS && !warnedRef.current.grace && !submitting) {
+            warnedRef.current.grace = true;
+            if (currentQuestion && answer.trim()) {
+                handleSubmitAnswer({ preventDefault: () => {} } as any);
+            } else {
+                handleEndInterview();
             }
-        };
-    }, [timerActive, questionTimer, currentQuestion, submitting, answer]);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [now]);
 
     useEffect(() => {
         fetchInterview();
-        const timer = setInterval(() => {
-            setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
-        }, 1000);
+        const timer = setInterval(() => setNow(Date.now()), 1000);
         return () => {
             clearInterval(timer);
             // Cancel any ongoing speech when leaving the page
@@ -186,10 +192,6 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
             // Stop recognition when leaving
             if (recognitionRef.current && isListening) {
                 recognitionRef.current.stop();
-            }
-            // Clear question timer
-            if (questionTimerRef.current) {
-                clearInterval(questionTimerRef.current);
             }
         };
     }, [params.id]);
@@ -208,9 +210,13 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                 
                 const loadedMessages: Message[] = [];
                 
-                data.interview.answers.forEach((a: any) => {
-                    loadedMessages.push({ role: "ai", content: a.questionText });
-                    loadedMessages.push({ role: "user", content: a.userAnswer, score: a.score });
+                const orderedAnswers = [...(data.interview.answers || [])].sort(
+                    (a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+                );
+                orderedAnswers.forEach((a: any) => {
+                    loadedMessages.push({ role: "ai", content: a.question_text ?? a.questionText });
+                    const ans = a.user_answer ?? a.userAnswer;
+                    loadedMessages.push({ role: "user", content: ans === "[No answer provided]" ? "(skipped)" : ans, score: a.score });
                 });
                 
                 setMessages(loadedMessages);
@@ -220,10 +226,15 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                 
                 if (data.interview.status === "completed") {
                     setCompleted(true);
+                } else if (data.interview.answers.length > 0) {
+                    if (!hasInitializedRef.current) {
+                        hasInitializedRef.current = true;
+                        setTimeout(() => generateQuestion(), 800);
+                    }
                 } else if (data.interview.answers.length === 0) {
                     const firstName = data.interview.user?.name?.split(' ')[0] || "there";
                     const greeting = `Hello ${firstName}! Welcome to your AI-powered interview.`;
-                    const intro = `I'm your AI interviewer for the ${data.interview.role || 'this'} position${data.interview.company ? ` at ${data.interview.company}` : ''}. This is a ${data.interview.difficulty} difficulty ${data.interview.type.replace('-', ' ')} interview. You'll have 2 minutes to answer each question. Take your time, speak clearly, and feel free to think through your responses. Let's begin with your first question!`;
+                    const intro = `I'm your AI interviewer for the ${data.interview.role || 'this'} position${data.interview.company ? ` at ${data.interview.company}` : ''}. This is a ${Math.round(plannedSessionSeconds(data.interview) / 60)}-minute, ${data.interview.difficulty} difficulty ${data.interview.type.replace('-', ' ')} interview. There's no timer on individual questions — answer at your own pace, and I may ask follow-ups just like a real interviewer. Let's start with a quick introduction.`;
 
                     // Always show greeting/intro messages immediately (even on StrictMode remount)
                     setMessages([
@@ -288,11 +299,14 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
     };
 
     const generateQuestion = async () => {
-        // Stale-closure-safe cap: never exceed totalQuestions
-        if (questionNumberRef.current >= Math.min(interview?.total_questions || 5, 20)) {
+        if (!aliveRef.current) return;
+        // The session ends on time, not after a fixed number of questions
+        if (timeUpRef.current) {
             await handleEndInterview();
             return;
         }
+        if (!aliveRef.current || questionInFlightRef.current) return;
+        questionInFlightRef.current = true;
         setGenerating(true);
         setQuestionError("");
         setSpeechError("");
@@ -304,7 +318,21 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
         try {
             const response = await fetch(`/api/interview/${params.id}/question`, { method: "POST" });
             const data = await response.json();
+            if (data.success && data.done) {
+                // Session time is up — wrap up instead of asking another question
+                timeUpRef.current = true;
+                setTimeUp(true);
+                await handleEndInterview();
+                return;
+            }
             if (data.success) {
+                // The interviewer's short reaction to the previous answer goes into the conversation
+                if (data.transition) {
+                    setMessages(prev => [...prev, { role: "ai", content: data.transition }]);
+                }
+                setCurrentKind(data.kind || "");
+                lastKindRef.current = data.kind || "";
+                setAnswerStartedAt(null);
                 setCurrentQuestion(data.question);
                 setQuestionNumber(prev => {
                     const next = prev + 1;
@@ -312,11 +340,10 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                     return next;
                 });
                 // Question added to messages together with the answer in handleSubmitAnswer
-                // Timer and mic start AFTER AI finishes reading (inside utterance.onend)
+                // Answer clock and mic start AFTER the AI finishes reading (inside utterance.onend)
 
                 const startMicAndTimer = () => {
-                    setQuestionTimer(120);
-                    setTimerActive(true);
+                    setAnswerStartedAt(Date.now());
                     if (recognitionRef.current) {
                         try {
                             recognitionRef.current.start();
@@ -329,7 +356,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                 if (voiceEnabled && synthRef.current) {
                     synthRef.current.cancel();
                     setIsSpeaking(true);
-                    const utterance = new SpeechSynthesisUtterance(data.question);
+                    const utterance = new SpeechSynthesisUtterance(data.transition ? `${data.transition} ${data.question}` : data.question);
                     utterance.rate = 0.9;
                     utterance.pitch = 1.0;
                     utterance.volume = 1.0;
@@ -358,7 +385,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
             setQuestionError(msg);
             toast.error(msg, { duration: 5000 });
         }
-        finally { setGenerating(false); }
+        finally { setGenerating(false); questionInFlightRef.current = false; }
     };
 
     // Save a skipped question to DB so it appears in feedback with the actual question text
@@ -376,12 +403,6 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
     const handleSubmitAnswer = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!currentQuestion) return;
-        
-        // Stop the question timer
-        setTimerActive(false);
-        if (questionTimerRef.current) {
-            clearInterval(questionTimerRef.current);
-        }
         
         // Check if answer is empty - skip evaluation if no answer provided
         const userAnswer = answer.trim();
@@ -420,26 +441,37 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                     return updated;
                 });
                 setCurrentQuestion("");
-                
-                // questionNumber was incremented when question was generated; check completion
-                if (questionNumber >= totalQuestions) {
-                    toast.success("🎉 Interview complete! Generating your feedback...");
-                    setTimeout(async () => {
-                        await handleEndInterview();
-                    }, 2000);
-                } else {
-                    setTimeout(() => generateQuestion(), 1500);
-                }
+                setAnswerStartedAt(null);
+                proceedAfterAnswer();
+            } else {
+                throw new Error(data.error || "Failed to save answer");
             }
-        } catch (error) { console.error("Error submitting answer:", error); }
+        } catch (error) {
+            console.error("Error submitting answer:", error);
+            // Put the answer back so nothing is lost, and let the candidate retry
+            setMessages(prev => prev.slice(0, -2));
+            setAnswer(userAnswer);
+            toast.error("Couldn't submit your answer. Please try again.");
+        }
         finally { setSubmitting(false); }
     };
 
+    /** After an answer (or skip): wrap up if time is up or this was the closing question, else continue. */
+    const proceedAfterAnswer = () => {
+        if (timeUpRef.current || lastKindRef.current === "closing") {
+            toast.success("🎉 That's time! Generating your feedback...");
+            setTimeout(() => handleEndInterview(), 1500);
+        } else {
+            setTimeout(() => generateQuestion(), 900);
+        }
+    };
+
+    const endingRef = useRef(false);
     const handleEndInterview = async () => {
+        if (endingRef.current) return; // time-up, closing answer and End button can race
+        endingRef.current = true;
         // Show overlay immediately — stop everything
         setEndingInterview(true);
-        setTimerActive(false);
-        if (questionTimerRef.current) clearInterval(questionTimerRef.current);
         if (isListening && recognitionRef.current) {
             recognitionRef.current.stop();
             setIsListening(false);
@@ -457,9 +489,13 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
             const data = await response.json();
             if (data.success) {
                 router.push(`/interview/${params.id}/feedback`);
+            } else {
+                throw new Error(data.error || "Failed to end interview");
             }
         } catch (error) {
             console.error("Error ending interview:", error);
+            toast.error("Couldn't finish the interview. Please try again.");
+            endingRef.current = false;
             setEndingInterview(false);
         }
     };
@@ -563,48 +599,31 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                     <p className="text-xs text-gray-600 capitalize">{interview?.type} · {interview?.difficulty}</p>
                 </div>
 
-                {/* Question Timer - Prominent Display */}
-                {timerActive && (
-                    <div className="glass-card rounded-2xl p-6 mb-4 border-2 border-purple-500/30">
-                        <div className="flex flex-col items-center">
-                            <div className="relative w-32 h-32 mb-3">
-                                <svg className="transform -rotate-90" width="128" height="128">
-                                    <circle
-                                        cx="64"
-                                        cy="64"
-                                        r="56"
-                                        stroke="rgba(168,85,247,0.15)"
-                                        strokeWidth="8"
-                                        fill="none"
-                                    />
-                                    <circle
-                                        cx="64"
-                                        cy="64"
-                                        r="56"
-                                        stroke={questionTimer <= 30 ? "#ef4444" : questionTimer <= 60 ? "#f59e0b" : "#a855f7"}
-                                        strokeWidth="8"
-                                        fill="none"
-                                        strokeLinecap="round"
-                                        strokeDasharray={2 * Math.PI * 56}
-                                        strokeDashoffset={2 * Math.PI * 56 * (1 - questionTimer / 120)}
-                                        className="transition-all duration-1000"
-                                    />
-                                </svg>
-                                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                    <span className={`text-3xl font-bold font-mono ${questionTimer <= 30 ? 'text-red-400 animate-pulse' : questionTimer <= 60 ? 'text-yellow-400' : 'text-purple-400'}`}>
-                                        {Math.floor(questionTimer / 60)}:{(questionTimer % 60).toString().padStart(2, '0')}
-                                    </span>
-                                    <span className="text-xs text-gray-600 mt-1">
-                                        {questionTimer <= 30 ? 'Hurry!' : questionTimer <= 60 ? 'Half time' : 'Time left'}
-                                    </span>
-                                </div>
+                {/* Session clock — time left in the whole interview */}
+                <div className="glass-card rounded-2xl p-5 mb-4 border border-purple-500/20">
+                    <div className="flex flex-col items-center">
+                        <div className="relative w-32 h-32 mb-2">
+                            <svg className="transform -rotate-90" width="128" height="128">
+                                <circle cx="64" cy="64" r="56" stroke="rgba(168,85,247,0.15)" strokeWidth="8" fill="none" />
+                                <circle cx="64" cy="64" r="56"
+                                    stroke={sessionRemaining <= 60 ? "#ef4444" : sessionRemaining <= 300 ? "#f59e0b" : "#a855f7"}
+                                    strokeWidth="8" fill="none" strokeLinecap="round"
+                                    strokeDasharray={2 * Math.PI * 56}
+                                    strokeDashoffset={2 * Math.PI * 56 * (1 - Math.max(0, sessionRemaining) / sessionTotal)}
+                                    className="transition-all duration-1000" />
+                            </svg>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                <span className={`text-3xl font-bold font-mono ${sessionRemaining <= 60 ? "text-red-400" : sessionRemaining <= 300 ? "text-yellow-400" : "text-purple-400"}`}>
+                                    {fmtClock(sessionRemaining)}
+                                </span>
+                                <span className="text-xs text-gray-600 mt-1">{timeUp ? "Wrapping up" : "Time left"}</span>
                             </div>
-                            <p className="text-xs text-gray-500 text-center">
-                                Answer within time frame
-                            </p>
                         </div>
+                        <p className="text-xs text-gray-500 text-center">
+                            {Math.round(sessionTotal / 60)}-minute interview · no per-question limit
+                        </p>
                     </div>
-                )}
+                </div>
 
                 {/* Interview Stats */}
                 <div className="glass-card rounded-2xl p-4 mb-4">
@@ -614,11 +633,11 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                     <div className="grid grid-cols-2 gap-3">
                         <div className="text-center">
                             <div className="text-2xl font-bold text-purple-400">{questionNumber}</div>
-                            <div className="text-xs text-gray-600">Current Question</div>
+                            <div className="text-xs text-gray-600">Questions Asked</div>
                         </div>
                         <div className="text-center">
-                            <div className="text-2xl font-bold text-fuchsia-400">{totalQuestions}</div>
-                            <div className="text-xs text-gray-600">Total Questions</div>
+                            <div className="text-2xl font-bold text-fuchsia-400">{questionCount}</div>
+                            <div className="text-xs text-gray-600">Answered</div>
                         </div>
                     </div>
                 </div>
@@ -627,9 +646,9 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                 <div className="glass-card rounded-2xl p-4 mb-4">
                     <div className="flex items-center gap-2 mb-2">
                         <Clock className="w-3.5 h-3.5 text-gray-500" />
-                        <span className="text-xs text-gray-500">Total Time</span>
+                        <span className="text-xs text-gray-500">Elapsed</span>
                     </div>
-                    <div className="text-2xl font-bold text-white font-mono">{formatDuration(elapsedTime)}</div>
+                    <div className="text-2xl font-bold text-white font-mono">{fmtClock(Math.min(sessionElapsed, sessionTotal + GRACE_SECONDS))}<span className="text-sm text-gray-600"> / {fmtClock(sessionTotal)}</span></div>
                 </div>
 
                 {/* Confidence meter */}
@@ -725,7 +744,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                     {/* Mobile: live status + type (sidebar is hidden below lg) */}
                     <div className="lg:hidden flex-1 min-w-0 flex flex-col items-center">
                         <span className="flex items-center gap-1.5 text-xs text-green-400 font-medium">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Live · Q{Math.max(questionNumber, 1)}/{totalQuestions}
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Live · <span className={`font-mono ${sessionRemaining <= 60 ? "text-red-400" : sessionRemaining <= 300 ? "text-yellow-400" : ""}`}>{fmtClock(sessionRemaining)}</span> left
                         </span>
                         <span className="text-[11px] text-gray-500 capitalize truncate max-w-full">
                             {interview?.type?.replace("-", " ")} · {interview?.difficulty}{interview?.company ? ` · ${interview.company}` : ""}
@@ -845,7 +864,7 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                                     <div className="flex items-center justify-between gap-2 mb-2 sm:mb-3">
                                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-xs font-semibold">
                                             <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-                                            Question {questionNumber} of {totalQuestions}
+                                            {kindLabel[currentKind] || `Question ${questionNumber}`}
                                         </span>
                                         <div className="flex items-center gap-2">
                                             {isSpeaking && (
@@ -853,14 +872,13 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                                                     <Volume2 className="w-3.5 h-3.5" /> Reading aloud...
                                                 </span>
                                             )}
-                                            {timerActive && (
-                                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
-                                                    questionTimer <= 15 ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                                                    : questionTimer <= 45 ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                                                    : 'bg-white/5 border-white/10 text-gray-400'
+                                            {answerStartedAt && (
+                                                <span title="Time spent on this answer — no limit"
+                                                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
+                                                    answerSeconds >= LONG_ANSWER_SECONDS ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' : 'bg-white/5 border-white/10 text-gray-400'
                                                 }`}>
-                                                    <Clock className="w-3 h-3" />
-                                                    {Math.floor(questionTimer / 60)}:{(questionTimer % 60).toString().padStart(2, '0')}
+                                                    <Mic className="w-3 h-3" />
+                                                    {fmtClock(answerSeconds)}
                                                 </span>
                                             )}
                                         </div>
@@ -881,16 +899,21 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                                             <span className="text-xs text-red-300 leading-relaxed">{speechError}</span>
                                         </div>
                                     )}
-                                    {questionCount > 0 && (
-                                        <div className="flex items-center gap-2 mt-3">
-                                            <div className="flex gap-1">
-                                                {Array.from({ length: totalQuestions }).map((_, i) => (
-                                                    <div key={i} className={`h-1 w-5 rounded-full transition-all ${i < questionCount ? 'bg-purple-500' : i === questionCount ? 'bg-purple-500/40' : 'bg-white/10'}`} />
-                                                ))}
-                                            </div>
-                                            <span className="text-xs text-gray-600">{questionCount}/{totalQuestions} answered</span>
+                                    {timeUp ? (
+                                        <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-xl bg-orange-500/8 border border-orange-500/20">
+                                            <Clock className="w-3.5 h-3.5 text-orange-400 flex-shrink-0 mt-0.5" />
+                                            <span className="text-xs text-orange-300 leading-relaxed">Time&apos;s up — finish this answer and submit; we&apos;ll wrap up after it.</span>
                                         </div>
-                                    )}
+                                    ) : answerSeconds >= LONG_ANSWER_SECONDS ? (
+                                        <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-xl bg-yellow-500/8 border border-yellow-500/20">
+                                            <Clock className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                                            <span className="text-xs text-yellow-300 leading-relaxed">You&apos;ve been answering for a while — in a real interview, try to land your main point and wrap up.</span>
+                                        </div>
+                                    ) : null}
+                                    <div className="mt-3 h-1 rounded-full bg-white/5 overflow-hidden" title="Interview time used">
+                                        <div className={`h-full rounded-full transition-all duration-1000 ${sessionRemaining <= 60 ? "bg-red-500" : sessionRemaining <= 300 ? "bg-yellow-500" : "bg-purple-500"}`}
+                                            style={{ width: `${Math.min(100, (sessionElapsed / sessionTotal) * 100)}%` }} />
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1057,8 +1080,8 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                             <button
                                 onClick={() => {
                                     setShowSkipModal(false);
-                                    setTimerActive(false);
                                     setAnswer("");
+                                    setAnswerStartedAt(null);
                                     if (isListening && recognitionRef.current) {
                                         recognitionRef.current.stop();
                                         setIsListening(false);
@@ -1066,11 +1089,12 @@ export default function InterviewPage({ params }: { params: { id: string } }) {
                                     toast('Question skipped', { icon: '⏭️' });
                                     // Save skipped question text to DB before moving on
                                     const skippedQ = currentQuestion;
+                                    setMessages(prev => [...prev, { role: "ai", content: skippedQ }, { role: "user", content: "(skipped)", score: 0 }]);
                                     setCurrentQuestion("");
                                     setTimeout(async () => {
                                         await saveSkippedQuestion(skippedQ);
-                                        generateQuestion();
-                                    }, 800);
+                                        proceedAfterAnswer();
+                                    }, 600);
                                 }}
                                 className="flex-1 py-2.5 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-sm font-medium hover:bg-yellow-500/20 hover:border-yellow-500/50 transition-all"
                             >
