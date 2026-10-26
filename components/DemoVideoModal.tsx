@@ -34,7 +34,7 @@ export default function DemoVideoModal({ open, onClose }: { open: boolean; onClo
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
             <div className="relative w-full max-w-5xl">
                 <div className="flex items-center justify-between mb-2 px-1">
-                    <p className="text-sm text-gray-300">PrepMate demo · 2½ min</p>
+                    <p className="text-sm text-gray-300">PrepMate Demo</p>
                     <button ref={closeRef} onClick={onClose} aria-label="Close demo video"
                         className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
                         <X className="w-5 h-5" />
