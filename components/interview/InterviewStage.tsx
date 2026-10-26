@@ -59,8 +59,16 @@ export default function InterviewStage({ state, speechPulse, nodSignal, caption,
     useEffect(() => () => streamRef.current?.getTracks().forEach((t) => t.stop()), []);
 
     const status = STATUS[state];
-    const spoken = captionIndex >= 0 ? caption.slice(0, captionIndex) : "";
-    const rest = captionIndex >= 0 ? caption.slice(captionIndex) : caption;
+    // Subtitle-style captions: show only the sentence being spoken, so they never cover the face.
+    const sentences = caption.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || (caption ? [caption] : []);
+    let offset = 0, sentence = sentences[0] || "", sentenceStart = 0;
+    for (const sen of sentences) {
+        if (captionIndex >= 0 && captionIndex >= offset) { sentence = sen; sentenceStart = offset; }
+        offset += sen.length;
+    }
+    const local = captionIndex >= 0 ? Math.max(0, Math.min(sentence.length, captionIndex - sentenceStart)) : -1;
+    const spoken = local >= 0 ? sentence.slice(0, local) : "";
+    const rest = local >= 0 ? sentence.slice(local) : sentence;
 
     return (
         <div className={`relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#1d1335] to-[#0f0a1c] ${className}`}>
@@ -102,8 +110,8 @@ export default function InterviewStage({ state, speechPulse, nodSignal, caption,
             {/* live captions */}
             {caption && (
                 <div className="absolute inset-x-3 sm:inset-x-10 bottom-12 flex justify-center pointer-events-none">
-                    <p className="max-w-xl px-3 py-1.5 rounded-lg bg-black/65 backdrop-blur text-[13px] sm:text-sm leading-snug text-center line-clamp-3">
-                        <span className="text-white">{spoken}</span><span className={captionIndex >= 0 ? "text-gray-400" : "text-white"}>{rest}</span>
+                    <p className="max-w-xl px-3 py-1.5 rounded-lg bg-black/65 backdrop-blur text-[13px] sm:text-sm leading-snug text-center line-clamp-2">
+                        <span className="text-white">{spoken.trimStart()}</span><span className={local >= 0 ? "text-gray-400" : "text-white"}>{local > 0 ? rest : rest.trimStart()}</span>
                     </p>
                 </div>
             )}
