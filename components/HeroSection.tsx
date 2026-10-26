@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import DemoVideoModal from "@/components/DemoVideoModal";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { motion, useReducedMotion } from "framer-motion";
@@ -233,9 +234,8 @@ export default function HeroSection() {
         router.push(isSignedIn ? "/interview/new" : "/sign-up");
     };
 
-    const handleWatchDemo = () => {
-        document.getElementById("features")?.scrollIntoView({ behavior: "smooth" });
-    };
+    const [demoOpen, setDemoOpen] = useState(false);
+    const handleWatchDemo = () => setDemoOpen(true);
 
     return (
         <section className="relative min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 overflow-x-hidden pt-24 sm:pt-32 pb-32 sm:pb-48">
@@ -407,6 +407,7 @@ export default function HeroSection() {
                     <MockupCard />
                 </div>
             )}
+        <DemoVideoModal open={demoOpen} onClose={() => setDemoOpen(false)} />
         </section>
     );
 }

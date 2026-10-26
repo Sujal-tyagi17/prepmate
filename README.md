@@ -21,7 +21,7 @@ Practice interviews • Get instant feedback • Land your dream job
 
 <div align="center">
   <img src="./docs/demo/prepmate-demo.gif" alt="PrepMate demo: Maya, the AI interviewer, asking questions with live captions, a spoken answer, the code editor and the feedback report" width="100%"/>
-  <p>▶️ <b><a href="./docs/demo/prepmate-demo.mp4">Watch the full 2½-minute walkthrough (MP4)</a></b><br/>
+  <p>▶️ <b><a href="./public/demo/prepmate-demo.mp4">Watch the full 2½-minute walkthrough (MP4)</a></b><br/>
   Setup → AI interviewer with live captions → voice answers &amp; hands-free mode → coding question → feedback report → analytics</p>
 </div>
 

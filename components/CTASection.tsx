@@ -5,6 +5,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { ArrowRight, Play, Sparkles } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import DemoVideoModal from "@/components/DemoVideoModal";
 
 function useInView(threshold = 0.2) {
     const ref = useRef<HTMLDivElement>(null);
@@ -38,7 +39,8 @@ export default function CTASection() {
         window.dispatchEvent(new CustomEvent("pm:navstart"));
         router.push(isSignedIn ? "/dashboard" : "/sign-up");
     };
-    const handleWatchDemo = () => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" });
+    const [demoOpen, setDemoOpen] = useState(false);
+    const handleWatchDemo = () => setDemoOpen(true);
 
     return (
         <section className="relative py-28 px-6 overflow-hidden bg-[#0a0514]">
@@ -137,6 +139,7 @@ export default function CTASection() {
                     </div>
                 </motion.div>
             </div>
+        <DemoVideoModal open={demoOpen} onClose={() => setDemoOpen(false)} />
         </section>
     );
 }
